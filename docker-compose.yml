@@ -1,0 +1,48 @@
+version: '3.8'
+
+# Ye docker-compose file hamari local dependencies (Database, Cache) ko run karne ke kaam aati hai.
+# Production mein hum managed services (jaise AWS RDS, ElastiCache) use karte hain.
+services:
+  postgres:
+    image: postgres:15-alpine
+    # Container ka naam taaki easily identify ho sake
+    container_name: vercel_pro_postgres
+    # Ye environment variables Postgres ko batate hain ki username, password aur database ka naam kya hoga
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vercel_pro
+    # Local machine ka port 5432 container ke 5432 port se link kar rahe hain
+    ports:
+      - "5433:5432"
+    # Data ko persist (save) karne ke liye volume mount kar rahe hain taaki container restart hone pe data delete na ho
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Healthcheck check karta hai ki database actually ready hai queries lene ke liye
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: vercel_pro_redis
+    # Local machine ka port 6380 container ke 6379 se link kar rahe hain (conflict avoid karne ke liye)
+    ports:
+      - "6380:6379"
+    # Redis database ko memory se disk par save karne ke liye volume mount
+    volumes:
+      - redis_data:/data
+    # Redis ko persistent mode (appendonly) mein start kar rahe hain
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# Volumes define kiye gaye hain taaki Docker unhe host OS (tere computer) par securely store kare
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,34 @@
+# Dependency directories (Jo har package aur root me local dependencies hold karte hain)
+node_modules/
+jspm_packages/
+web_modules/
+
+# Build outputs (TypeScript compile hone ke baad ya NextJS build hone ke baad jo folders bante hain)
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# Package managers specific logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variable files (Inme secure credentials hote hain, inhe Git pe nahi bhejna chahiye)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Project-specific ignores (Jaise tera custom design files)
+design.md
+DESIGN-vercel.md
+design-vercel.md

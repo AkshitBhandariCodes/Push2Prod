@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  /* Light Mode values */
+  --background: #fafafa;
+  --foreground: #171717;
+  
+  --card-bg: #ffffff;
+  --border-hairline: #ebebeb;
+  
+  --text-ink: #171717;
+  --text-body: #4d4d4d;
+  --text-mute: #8f8f8f;
+}
+
+/* Jab html tag par .dark class hogi, tab ye values load hongi */
+.dark {
+  /* Dark Mode values (Vercel dark style) */
+  --background: #000000;
+  --foreground: #ffffff;
+  
+  --card-bg: #0a0a0a;
+  --border-hairline: #1f1f1f;
+  
+  --text-ink: #ffffff;
+  --text-body: #a1a1a1;
+  --text-mute: #888888;
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  
+  --color-card-bg: var(--card-bg);
+  --color-border-hairline: var(--border-hairline);
+  
+  --color-text-ink: var(--text-ink);
+  --color-text-body: var(--text-body);
+  --color-text-mute: var(--text-mute);
+  
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* transition lagaya hai taaki theme toggle smooth lage */
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+

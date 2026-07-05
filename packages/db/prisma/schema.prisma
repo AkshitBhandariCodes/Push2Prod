@@ -1,0 +1,121 @@
+// Setup Prisma schema for our PostgreSQL database.
+// Ye schema project ki structural neenv (database tables) define karega.
+
+datasource db {
+  provider = "postgresql"
+  // dotenv package root level se connection string pick karega
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- ENUMS (Postgres native enum types banenge db migrations me) ---
+
+// Project ka operational status
+enum ProjectStatus {
+  ACTIVE
+  INACTIVE
+  DEPLOYING
+}
+
+// Har deploy request ki workflow state
+enum DeploymentStatus {
+  PENDING
+  BUILDING
+  READY
+  ERROR
+  CANCELLED
+}
+
+// Build progress timeline events ke types
+enum BuildEventStatus {
+  START
+  INFO
+  WARNING
+  ERROR
+  END
+}
+
+// --- MODELS ---
+
+// User: Developer account holds basic user info
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  name      String?
+  createdAt DateTime  @default(now())
+  
+  // Relations: Ek developer ke paas multiple projects ho sakte hain
+  projects  Project[]
+}
+
+// Project: App settings, name aur link represent karega
+model Project {
+  id            String          @id @default(uuid())
+  name          String          @unique
+  repositoryUrl String?
+  status        ProjectStatus   @default(ACTIVE)
+  createdAt     DateTime        @default(now())
+  
+  // Relations
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deployments   Deployment[]
+  envVars       ProjectEnvVar[]
+}
+
+// Deployment: Har build request ki full detail store karega (commit, build status, time)
+model Deployment {
+  id            String           @id @default(uuid())
+  commitHash    String?
+  commitMessage String?
+  status        DeploymentStatus @default(PENDING)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  
+  // Relations
+  projectId     String
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  buildLogs     BuildLog[]
+  buildEvents   BuildEvent[]
+}
+
+// ProjectEnvVar: Environment configurations storing keys and values securely
+model ProjectEnvVar {
+  id        String   @id @default(uuid())
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  
+  // Relations
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Composite constraint: Ek project me duplicate variables allow nahi karenge
+  @@unique([projectId, key])
+}
+
+// BuildLog: Docker container builds ke raw console text dumps (stdout/stderr lines)
+model BuildLog {
+  id           String     @id @default(uuid())
+  message      String
+  createdAt    DateTime   @default(now())
+  
+  // Relations
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+}
+
+// BuildEvent: Structural updates (timeline logs) jaise "Cloned", "Docker built"
+model BuildEvent {
+  id           String           @id @default(uuid())
+  type         BuildEventStatus @default(INFO)
+  message      String
+  createdAt    DateTime         @default(now())
+  
+  // Relations
+  deploymentId String
+  deployment   Deployment       @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@vercel-pro/db",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "dotenv -e ../../.env -- prisma generate && tsc",
+    "dev": "tsc --watch",
+    "prisma:generate": "dotenv -e ../../.env -- prisma generate",
+    "prisma:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "prisma:studio": "dotenv -e ../../.env -- prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.2"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.2",
+    "dotenv-cli": "^7.3.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
