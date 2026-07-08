@@ -1,5 +1,5 @@
-// Setup Prisma schema for our PostgreSQL database.
-// Ye schema project ki structural neenv (database tables) define karega.
+// Vercel-Pro ka PostgreSQL database schema
+// Ye file project ki structural neenv (database tables) define karti hai
 
 datasource db {
   provider = "postgresql"
@@ -13,15 +13,16 @@ generator client {
 
 // --- ENUMS (Postgres native enum types banenge db migrations me) ---
 
-// Project ka operational status
+// Project ka operational status — project abhi active hai, inactive hai, ya deploy ho raha hai
 enum ProjectStatus {
   ACTIVE
   INACTIVE
   DEPLOYING
 }
 
-// Har deploy request ki workflow state
+// Har deploy request ki workflow state — QUEUED se lekar READY ya ERROR tak
 enum DeploymentStatus {
+  QUEUED
   PENDING
   BUILDING
   READY
@@ -29,7 +30,7 @@ enum DeploymentStatus {
   CANCELLED
 }
 
-// Build progress timeline events ke types
+// Build progress timeline events ke types — jaise start, info, warning, error, end
 enum BuildEventStatus {
   START
   INFO
@@ -40,25 +41,31 @@ enum BuildEventStatus {
 
 // --- MODELS ---
 
-// User: Developer account holds basic user info
+// User: Developer account — holds basic user info (email, name)
 model User {
   id        String    @id @default(uuid())
   email     String    @unique
   name      String?
   createdAt DateTime  @default(now())
-  
+
   // Relations: Ek developer ke paas multiple projects ho sakte hain
   projects  Project[]
 }
 
-// Project: App settings, name aur link represent karega
+// Project: App settings — name, slug (URL-friendly identifier), repo link, build config
 model Project {
   id            String          @id @default(uuid())
-  name          String          @unique
-  repositoryUrl String?
+  name          String          // Display name — "My Portfolio Site"
+  slug          String          @unique // URL-friendly identifier — "my-portfolio-site"
+  repositoryUrl String?         // Git repository URL (optional, user baad mein bhi add kar sakta hai)
+  branch        String          @default("main") // Git branch to deploy from
+  buildCommand  String          @default("npm run build") // Build command jo container mein chalegi
+  outputDir     String          @default("dist") // Build ka output directory (e.g. dist, .next, build)
+  rootDir       String          @default(".") // Repo ke andar project ka root directory
   status        ProjectStatus   @default(ACTIVE)
   createdAt     DateTime        @default(now())
-  
+  updatedAt     DateTime        @updatedAt
+
   // Relations
   userId        String
   user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -71,10 +78,10 @@ model Deployment {
   id            String           @id @default(uuid())
   commitHash    String?
   commitMessage String?
-  status        DeploymentStatus @default(PENDING)
+  status        DeploymentStatus @default(QUEUED)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
-  
+
   // Relations
   projectId     String
   project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -88,12 +95,12 @@ model ProjectEnvVar {
   key       String
   value     String
   createdAt DateTime @default(now())
-  
+
   // Relations
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
-  // Composite constraint: Ek project me duplicate variables allow nahi karenge
+
+  // Composite constraint: Ek project me duplicate env variables allow nahi karenge
   @@unique([projectId, key])
 }
 
@@ -102,7 +109,7 @@ model BuildLog {
   id           String     @id @default(uuid())
   message      String
   createdAt    DateTime   @default(now())
-  
+
   // Relations
   deploymentId String
   deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
@@ -114,7 +121,7 @@ model BuildEvent {
   type         BuildEventStatus @default(INFO)
   message      String
   createdAt    DateTime         @default(now())
-  
+
   // Relations
   deploymentId String
   deployment   Deployment       @relation(fields: [deploymentId], references: [id], onDelete: Cascade)

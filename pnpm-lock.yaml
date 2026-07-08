@@ -108,6 +108,9 @@ importers:
       '@vercel-pro/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@vercel-pro/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@vercel-pro/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -126,6 +129,9 @@ importers:
       redis:
         specifier: ^4.6.10
         version: 4.7.1
+      zod:
+        specifier: ^3.22.4
+        version: 3.25.76
     devDependencies:
       '@types/cors':
         specifier: ^2.8.15

@@ -11,6 +11,17 @@
   --text-ink: #171717;
   --text-body: #4d4d4d;
   --text-mute: #8f8f8f;
+
+  /* Phase 2 — accent aur interactive element ke liye naye variables */
+  --accent: #0070f3;
+  --accent-hover: #0060df;
+  --accent-foreground: #ffffff;
+  --success: #50e3c2;
+  --warning: #f5a623;
+  --error: #ee0000;
+  --input-bg: #ffffff;
+  --input-border: #d4d4d4;
+  --input-focus: #0070f3;
 }
 
 /* Jab html tag par .dark class hogi, tab ye values load hongi */
@@ -25,6 +36,17 @@
   --text-ink: #ffffff;
   --text-body: #a1a1a1;
   --text-mute: #888888;
+
+  /* Dark mode mein inputs aur accents ke liye slightly different values */
+  --accent: #0070f3;
+  --accent-hover: #0060df;
+  --accent-foreground: #ffffff;
+  --success: #50e3c2;
+  --warning: #f5a623;
+  --error: #ee0000;
+  --input-bg: #111111;
+  --input-border: #333333;
+  --input-focus: #0070f3;
 }
 
 @theme {
@@ -37,6 +59,17 @@
   --color-text-ink: var(--text-ink);
   --color-text-body: var(--text-body);
   --color-text-mute: var(--text-mute);
+
+  /* Naye theme tokens — Tailwind classes mein use hone ke liye */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-input-bg: var(--input-bg);
+  --color-input-border: var(--input-border);
+  --color-input-focus: var(--input-focus);
   
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -49,4 +82,3 @@ body {
   /* transition lagaya hai taaki theme toggle smooth lage */
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-
