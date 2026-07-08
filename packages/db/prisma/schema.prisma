@@ -79,6 +79,13 @@ model Deployment {
   commitHash    String?
   commitMessage String?
   status        DeploymentStatus @default(QUEUED)
+  
+  // Phase 5: Worker Reliability fields
+  attemptCount  Int              @default(0)
+  lockedBy      String?          // Worker ID processing this deployment
+  lockedUntil   DateTime?        // Time until lock expires
+  lastError     String?          // Log of the last error if failed
+  
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 

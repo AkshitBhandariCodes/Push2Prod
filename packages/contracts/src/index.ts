@@ -123,6 +123,9 @@ export interface DeploymentResponse {
   commitHash: string | null;
   commitMessage: string | null;
   status: string;
+  attemptCount: number;
+  lockedBy: string | null;
+  lastError: string | null;
   createdAt: string;
   updatedAt: string;
   projectId: string;

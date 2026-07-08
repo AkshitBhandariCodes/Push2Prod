@@ -16,6 +16,7 @@ import { createClient, RedisClientType } from 'redis';
 import debugRouter from './routes/debug';
 import projectsRouter from './routes/projects';
 import { createDeployRouter } from './routes/deploy';
+import deploymentsRouter from './routes/deployments';
 
 // Express app initialize kar rahe hain
 const app = express();
@@ -61,6 +62,9 @@ app.use('/projects', projectsRouter);
 // createDeployRouter ek factory function hai jo redisClient accept karta hai
 // (taaki deploy route Redis Stream mein XADD kar sake)
 app.use('/projects', createDeployRouter(redisClient));
+
+// Deployments log route
+app.use('/deployments', deploymentsRouter);
 
 // ============================================================
 // Health Check Endpoint

@@ -1,0 +1,23 @@
+{
+  "name": "@vercel-pro/build-controller",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
+  },
+  "dependencies": {
+    "redis": "^4.6.10",
+    "simple-git": "^3.22.0",
+    "@vercel-pro/logger": "workspace:*",
+    "@vercel-pro/config": "workspace:*",
+    "@vercel-pro/db": "workspace:*",
+    "@vercel-pro/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "ts-node-dev": "^2.0.0"
+  }
+}
