@@ -55,6 +55,12 @@ export const CreateProjectInputSchema = z.object({
     .string()
     .max(200)
     .default('.'),
+    
+  // Phase 12: Environment variables added during creation
+  envVars: z.array(z.object({
+    key: z.string().min(1, { message: 'Env key cannot be empty' }),
+    value: z.string()
+  })).optional(),
 });
 
 // TypeScript type auto-generate — frontend aur backend dono ek hi type use karenge

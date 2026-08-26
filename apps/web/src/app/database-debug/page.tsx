@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchApi } from "@/lib/api";
 
 // Table counts interface
 interface DbCounts {
@@ -29,9 +30,9 @@ export default function DatabaseDebugPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://localhost:4001/debug/db-counts");
+      const res = await fetchApi("/debug/db-counts");
       if (!res.ok) {
-        throw new Error("API call failed. Is the Express service running on port 4001?");
+        throw new Error("API call failed. Is the API Gateway running on port 4000?");
       }
       const data: ApiResponse = await res.json();
       setCounts(data.counts);

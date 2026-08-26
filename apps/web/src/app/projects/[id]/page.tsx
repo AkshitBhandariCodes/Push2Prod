@@ -2,6 +2,8 @@
 
 import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { fetchApi } from '@/lib/api';
 
 // ---- Types ----
 interface Deployment {
@@ -12,6 +14,8 @@ interface Deployment {
   attemptCount: number;
   lockedBy: string | null;
   lastError: string | null;
+  uploadedFilesCount?: number | null;
+  artifactPrefix?: string | null;
   createdAt: string;
 }
 
@@ -91,7 +95,7 @@ function PageSkeleton() {
 }
 
 // ---- Logs Panel Component ----
-function LogsPanel({ deploymentId, onClose }: { deploymentId: string, onClose: () => void }) {
+function LogsPanel({ deploymentId, userId, onClose }: { deploymentId: string, userId: string, onClose: () => void }) {
   const [logs, setLogs] = useState<{ id: string, message: string, createdAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -101,7 +105,9 @@ function LogsPanel({ deploymentId, onClose }: { deploymentId: string, onClose: (
     
     const fetchLogs = async () => {
       try {
-        const res = await fetch(`http://localhost:4001/deployments/${deploymentId}/logs`);
+        const res = await fetchApi(`/deployments/${deploymentId}/logs`, {
+          headers: { 'x-user-id': userId }
+        });
         const data = await res.json();
         if (data.status === 'success') {
           setLogs(data.logs);
@@ -117,7 +123,7 @@ function LogsPanel({ deploymentId, onClose }: { deploymentId: string, onClose: (
     interval = setInterval(fetchLogs, 3000); // Poll every 3s
 
     return () => clearInterval(interval);
-  }, [deploymentId]);
+  }, [deploymentId, userId]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-background/80 backdrop-blur-sm">
@@ -158,6 +164,7 @@ function LogsPanel({ deploymentId, onClose }: { deploymentId: string, onClose: (
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { data: session } = useSession();
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,11 +174,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [viewLogsId, setViewLogsId] = useState<string | null>(null);
 
   const fetchProject = async () => {
+    if (!session?.user?.id) return;
     // Silently fetch in background if we already have data
     if (!project) setLoading(true);
     
     try {
-      const res = await fetch(`http://localhost:4001/projects/${id}`);
+      const res = await fetchApi(`/projects/${id}`, {
+        headers: { 'x-user-id': session.user.id }
+      });
       if (res.status === 404) {
         setNotFound(true);
         return;
@@ -190,23 +200,28 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   };
 
   useEffect(() => {
-    fetchProject();
-    
-    // Auto-refresh project data every 5s to see deployment status updates
-    const interval = setInterval(fetchProject, 5000);
-    return () => clearInterval(interval);
+    if (session?.user?.id) {
+      fetchProject();
+      
+      // Auto-refresh project data every 5s to see deployment status updates
+      const interval = setInterval(fetchProject, 5000);
+      return () => clearInterval(interval);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, session]);
 
   const handleDeploy = async () => {
-    if (!project) return;
+    if (!project || !session?.user?.id) return;
     setDeploying(true);
     setDeployBanner(null);
 
     try {
-      const res = await fetch(`http://localhost:4001/projects/${id}/deploy`, {
+      const res = await fetchApi(`/projects/${id}/deploy`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': session.user.id
+        },
         body: JSON.stringify({ commitMessage: `Manual deploy of ${project.name}` }),
       });
 
@@ -223,6 +238,25 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     }
   };
 
+  const handleCancelDeployment = async (deploymentId: string) => {
+    if (!session?.user?.id) return;
+    try {
+      const res = await fetchApi(`/deployments/${deploymentId}/cancel`, {
+        method: 'POST',
+        headers: { 'x-user-id': session.user.id }
+      });
+      if (res.ok) {
+        await fetchProject();
+      } else {
+        const data = await res.json();
+        alert(`Failed to cancel: ${data.message || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Network error while cancelling deployment.');
+    }
+  };
+
   if (loading && !project) return <PageSkeleton />;
 
   if (notFound || !project) {
@@ -235,7 +269,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-      {viewLogsId && <LogsPanel deploymentId={viewLogsId} onClose={() => setViewLogsId(null)} />}
+      {viewLogsId && session?.user?.id && <LogsPanel deploymentId={viewLogsId} userId={session.user.id} onClose={() => setViewLogsId(null)} />}
       
       <Link href="/projects" className="mb-6 inline-flex items-center gap-1.5 text-sm text-text-mute hover:text-text-ink transition-colors">
         ← Back to Projects
@@ -256,13 +290,29 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           <h1 className="text-2xl font-bold text-text-ink tracking-tight">{project.name}</h1>
           <p className="text-sm font-mono text-text-mute mt-1">{project.slug}</p>
         </div>
-        <button
-          onClick={handleDeploy}
-          disabled={deploying}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-hover disabled:opacity-50"
-        >
-          {deploying ? 'Deploying…' : 'Deploy'}
-        </button>
+        <div className="flex gap-3">
+          <a
+            href={`http://${project.slug}.localhost:4002/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg bg-card-bg border border-border-hairline px-5 py-2.5 text-sm font-medium text-text-ink transition-colors hover:bg-page-bg"
+          >
+            Live URL
+          </a>
+          <Link
+            href={`/projects/${project.id}/settings`}
+            className="inline-flex items-center gap-2 rounded-lg bg-card-bg border border-border-hairline px-5 py-2.5 text-sm font-medium text-text-ink transition-colors hover:bg-page-bg"
+          >
+            Settings
+          </Link>
+          <button
+            onClick={handleDeploy}
+            disabled={deploying}
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-hover disabled:opacity-50"
+          >
+            {deploying ? 'Deploying…' : 'Deploy'}
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-border-hairline bg-card-bg overflow-hidden">
@@ -300,6 +350,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                         {deployment.lockedBy}
                       </span>
                     )}
+
+                    {deployment.uploadedFilesCount !== undefined && deployment.uploadedFilesCount !== null && (
+                      <span className="text-xs font-mono text-success bg-success/10 px-1.5 py-0.5 rounded">
+                        {deployment.uploadedFilesCount} files uploaded
+                      </span>
+                    )}
                   </div>
 
                   {deployment.lastError && (
@@ -307,9 +363,23 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <strong className="font-semibold mr-1">Error:</strong> {deployment.lastError}
                     </p>
                   )}
+                  
+                  {deployment.artifactPrefix && (
+                    <p className="text-xs text-text-mute mt-1 font-mono truncate">
+                      S3 Prefix: {deployment.artifactPrefix}
+                    </p>
+                  )}
                 </div>
 
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 flex items-center gap-2">
+                  {['QUEUED', 'PENDING', 'BUILDING'].includes(deployment.status) && (
+                    <button 
+                      onClick={() => handleCancelDeployment(deployment.id)}
+                      className="text-xs font-medium text-error bg-error/10 border border-error/20 px-3 py-1.5 rounded-md hover:bg-error hover:text-white transition-colors"
+                    >
+                      Stop
+                    </button>
+                  )}
                   <button 
                     onClick={() => setViewLogsId(deployment.id)}
                     className="text-xs font-medium text-text-ink bg-background border border-border-hairline px-3 py-1.5 rounded-md hover:bg-border-hairline/50 transition-colors"

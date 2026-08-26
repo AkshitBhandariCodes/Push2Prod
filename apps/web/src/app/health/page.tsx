@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchApi } from "@/lib/api";
 
 // Typescript interface for the health API response
 interface HealthStatus {
@@ -9,6 +10,7 @@ interface HealthStatus {
   status: "healthy" | "unhealthy";
   dependencies: {
     postgres: string;
+    projectService: string;
     redis: string;
   };
   timestamp: string;
@@ -23,10 +25,10 @@ export default function HealthPage() {
 
   // Mount hone par backend state aur active HTML class check karenge
   useEffect(() => {
-    // 1. Fetch Backend Health
+    // 1. Fetch Backend Health from API Gateway
     async function fetchHealth() {
       try {
-        const res = await fetch("http://localhost:4001/health");
+        const res = await fetchApi("/health");
         const data = await res.json();
         setHealth(data);
       } catch (error) {
@@ -66,7 +68,7 @@ export default function HealthPage() {
         <div className="flex items-center justify-between mb-6 border-b border-border-hairline pb-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">System Status</h1>
-            <p className="text-xs text-text-mute mt-0.5">Vercel-Pro Foundation</p>
+            <p className="text-xs text-text-mute mt-0.5">Push2Prod Foundation</p>
           </div>
           
           {/* Status Indicator Dot */}
@@ -86,23 +88,31 @@ export default function HealthPage() {
         {/* Loading State */}
         {loading ? (
           <div className="text-text-mute text-sm animate-pulse py-4">
-            Fetching status from Project Service...
+            Fetching system status from API Gateway...
           </div>
         ) : (
           /* Dependencies Status Grid */
           <div className="space-y-4">
             
-            {/* API Service Status */}
+            {/* API Gateway Status */}
             <div className="flex justify-between items-center p-3 bg-background rounded-lg border border-border-hairline">
-              <span className="text-sm font-medium text-text-body">Project API</span>
+              <span className="text-sm font-medium text-text-body">API Gateway</span>
               <span className={`text-sm font-semibold ${health ? "text-emerald-500" : "text-red-500"}`}>
                 {health ? "Online" : "Offline"}
               </span>
             </div>
 
+            {/* Project API Status */}
+            <div className="flex justify-between items-center p-3 bg-background rounded-lg border border-border-hairline">
+              <span className="text-sm font-medium text-text-body">Project API Service</span>
+              <span className={`text-sm font-semibold ${health?.dependencies.projectService === "connected" ? "text-emerald-500" : "text-red-500"}`}>
+                {health?.dependencies.projectService === "connected" ? "Online" : "Offline"}
+              </span>
+            </div>
+
             {/* Postgres Status */}
             <div className="flex justify-between items-center p-3 bg-background rounded-lg border border-border-hairline">
-              <span className="text-sm font-medium text-text-body">PostgreSQL</span>
+              <span className="text-sm font-medium text-text-body">PostgreSQL DB</span>
               <span className={`text-sm font-semibold ${health?.dependencies.postgres === "connected" ? "text-emerald-500" : "text-red-500"}`}>
                 {health?.dependencies.postgres === "connected" ? "Connected" : "Disconnected"}
               </span>
@@ -110,7 +120,7 @@ export default function HealthPage() {
 
             {/* Redis Status */}
             <div className="flex justify-between items-center p-3 bg-background rounded-lg border border-border-hairline">
-              <span className="text-sm font-medium text-text-body">Redis Cache</span>
+              <span className="text-sm font-medium text-text-body">Redis Cache / Queue</span>
               <span className={`text-sm font-semibold ${health?.dependencies.redis === "connected" ? "text-emerald-500" : "text-red-500"}`}>
                 {health?.dependencies.redis === "connected" ? "Connected" : "Disconnected"}
               </span>

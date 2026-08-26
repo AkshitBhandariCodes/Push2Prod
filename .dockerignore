@@ -1,0 +1,49 @@
+﻿################################################################################
+# .dockerignore â€” Docker build context se exclude karo
+#
+# YE KYA HAI:
+#   Jab `docker build` run hota hai, Docker poora folder ka "context" bhejta hai
+#   daemon ko. Bade folders (node_modules, .git) context mein include karne se
+#   build slow aur large ho jaati hai.
+#   .dockerignore file ye folders exclude karta hai.
+################################################################################
+
+# Git history (build mein zaruri nahi)
+.git
+.gitignore
+
+# Local node_modules (Docker image apne andar fresh install karega)
+node_modules
+**/node_modules
+
+# Build output (Docker fresh build karega)
+dist
+**/dist
+.next
+**/.next
+.turbo
+**/.turbo
+
+# Local environment files (security!)
+.env
+.env.*
+!.env.example
+
+# Build artifacts (ye S3 mein hain, build context mein nahi chahiye)
+services/build-controller/.push2prod-builds
+scratch_clone
+
+# Documentation (runtime mein zaruri nahi)
+dev-docs
+docs
+*.md
+!packages/db/prisma/schema.prisma
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode
+.idea
+*.log

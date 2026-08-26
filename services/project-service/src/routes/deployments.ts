@@ -1,15 +1,35 @@
 import { Router, Request, Response } from 'express';
-import { db } from '@vercel-pro/db';
-import { logger } from '@vercel-pro/logger';
+import { db } from '@push2prod/db';
+import { logger } from '@push2prod/logger';
 
 const router = Router();
 
 // ============================================================
-// GET /deployments/:id/logs — Fetch build logs for a deployment
+// GET /deployments/:id/logs â€” Fetch build logs for a deployment
 // ============================================================
 router.get('/:id/logs', async (req: Request, res: Response) => {
   try {
     const { id: deploymentId } = req.params;
+    const userId = req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      res.status(401).json({ status: 'error', message: 'Unauthorized' });
+      return;
+    }
+
+    // Step 1: Validate deployment aur project ownership check
+    const deployment = await db.deployment.findUnique({
+      where: { id: deploymentId },
+      include: { project: true }
+    });
+
+    if (!deployment || deployment.project.userId !== userId) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Deployment not found or unauthorized',
+      });
+      return;
+    }
 
     // Fetch logs ordered by creation time
     const logs = await db.buildLog.findMany({
@@ -27,6 +47,58 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
       status: 'error',
       message: 'Failed to fetch deployment logs',
     });
+  }
+});
+
+// ============================================================
+// POST /deployments/:id/cancel â€” Cancel an ongoing deployment
+// ============================================================
+router.post('/:id/cancel', async (req: Request, res: Response) => {
+  try {
+    const { id: deploymentId } = req.params;
+    const userId = req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      res.status(401).json({ status: 'error', message: 'Unauthorized' });
+      return;
+    }
+
+    // Step 1: Validate deployment and ownership
+    const deployment = await db.deployment.findUnique({
+      where: { id: deploymentId },
+      include: { project: true }
+    });
+
+    if (!deployment || deployment.project.userId !== userId) {
+      res.status(404).json({ status: 'error', message: 'Deployment not found or unauthorized' });
+      return;
+    }
+
+    // Check if it can be cancelled
+    if (['READY', 'ERROR', 'CANCELLED'].includes(deployment.status)) {
+      res.status(400).json({ status: 'error', message: `Cannot cancel a deployment in ${deployment.status} state` });
+      return;
+    }
+
+    // Step 2: Mark as CANCELLED
+    await db.deployment.update({
+      where: { id: deploymentId },
+      data: { status: 'CANCELLED' }
+    });
+
+    // Also add a build log to show it was cancelled
+    await db.buildLog.create({
+      data: {
+        deploymentId,
+        message: 'Deployment was cancelled by the user.',
+      }
+    });
+
+    logger.info(`Deployment ${deploymentId} cancelled by user`);
+    res.json({ status: 'success', message: 'Deployment cancelled successfully' });
+  } catch (error) {
+    logger.error('Failed to cancel deployment:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to cancel deployment' });
   }
 });
 

@@ -1,48 +1,290 @@
-version: '3.8'
+################################################################################
+# docker-compose.yml â€” Full Stack Push2Prod
+#
+# YE FILE KYA KARTA HAI:
+#   Development environment mein poora stack ek command se start karta hai:
+#   $ docker compose up -d
+#
+# SERVICES:
+#   Infrastructure:  postgres, redis, minio
+#   Application:     web, api-gateway, project-service, routing-service
+#   Workers:         build-controller
+#
+# NOTE: build-runner yahan define nahi hai kyunki ye ek "job" hai, service nahi.
+#   build-controller dynamically 'docker run' karta hai build-runner ko.
+#
+# TESTING:
+#   docker compose ps         â€” sab services ka status dekho
+#   docker compose logs -f    â€” sab services ke logs dekho
+#   docker compose down -v    â€” sab band karo aur volumes delete karo
+################################################################################
 
-# Ye docker-compose file hamari local dependencies (Database, Cache) ko run karne ke kaam aati hai.
-# Production mein hum managed services (jaise AWS RDS, ElastiCache) use karte hain.
+name: prod2push
+
 services:
+
+  # ============================================================================
+  # INFRASTRUCTURE: PostgreSQL Database
+  # ============================================================================
   postgres:
     image: postgres:15-alpine
-    # Container ka naam taaki easily identify ho sake
-    container_name: vercel_pro_postgres
-    # Ye environment variables Postgres ko batate hain ki username, password aur database ka naam kya hoga
+    container_name: prod2push_postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: vercel_pro
-    # Local machine ka port 5432 container ke 5432 port se link kar rahe hain
+      POSTGRES_DB: prod2push
     ports:
+      # Host 5433 â†’ Container 5432 (conflict avoid karne ke liye agar local postgres chal raha ho)
       - "5433:5432"
-    # Data ko persist (save) karne ke liye volume mount kar rahe hain taaki container restart hone pe data delete na ho
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Healthcheck check karta hai ki database actually ready hai queries lene ke liye
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
 
+  # ============================================================================
+  # INFRASTRUCTURE: Redis Cache + Message Stream
+  # ============================================================================
   redis:
     image: redis:7-alpine
-    container_name: vercel_pro_redis
-    # Local machine ka port 6380 container ke 6379 se link kar rahe hain (conflict avoid karne ke liye)
+    container_name: prod2push_redis
     ports:
       - "6380:6379"
-    # Redis database ko memory se disk par save karne ke liye volume mount
     volumes:
       - redis_data:/data
-    # Redis ko persistent mode (appendonly) mein start kar rahe hain
+    # appendonly: disk pe persist karo (server restart pe data survive kare)
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
 
-# Volumes define kiye gaye hain taaki Docker unhe host OS (tere computer) par securely store kare
+  # ============================================================================
+  # INFRASTRUCTURE: MinIO (S3-compatible Object Storage)
+  # Build artifacts yahan store hote hain (JS, CSS, HTML files)
+  # ============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: prod2push_minio
+    ports:
+      - "9000:9000"   # S3 API port
+      - "9001:9001"   # Web Console port â€” http://localhost:9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: Next.js Web Dashboard
+  # Frontend UI â€” http://localhost:3000
+  # ============================================================================
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: prod2push_web
+    image: prod2push/web
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      # Container networking mein localhost nahi, service name use karo
+      NEXTAUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/prod2push
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: API Gateway
+  # Saare API requests ka entry point â€” http://localhost:4000
+  # Auth verify + proxy to downstream services
+  # ============================================================================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    container_name: prod2push_api_gateway
+    image: prod2push/api-gateway
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      # Container ke andar postgres ka address (service name, not localhost!)
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/prod2push
+      REDIS_URL: redis://redis:6379
+      PROJECT_SERVICE_URL: http://project-service:3002
+      WEB_APP_URL: http://localhost:3000
+      API_GATEWAY_PORT: "4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: Project Service
+  # Project CRUD + Deploy trigger â€” internal port 3002
+  # ============================================================================
+  project-service:
+    build:
+      context: .
+      dockerfile: services/project-service/Dockerfile
+    container_name: prod2push_project_service
+    image: prod2push/project-service
+    # Port deliberately expose nahi kiya â€” sirf api-gateway se access hoga
+    # Ye network isolation hai â€” public se direct access nahi hoga
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/prod2push
+      REDIS_URL: redis://redis:6379
+      PROJECT_SERVICE_PORT: "3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: Routing Service
+  # Subdomain routing â€” http://<slug>.localhost:4002 â†’ S3 artifacts
+  # ============================================================================
+  routing-service:
+    build:
+      context: .
+      dockerfile: services/routing-service/Dockerfile
+    container_name: prod2push_routing_service
+    image: prod2push/routing-service
+    ports:
+      - "4002:4002"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/prod2push
+      REDIS_URL: redis://redis:6379
+      # MinIO ka internal address (container network mein 'minio' hostname resolve hoga)
+      S3_ENDPOINT: http://minio:9000
+      S3_FORCE_PATH_STYLE: "true"
+      S3_BUCKET_NAME: prod2push-builds
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # WORKER: Build Controller
+  # Redis Stream consumer â€” build jobs pick karke build-runner spawn karta hai
+  #
+  # DOCKER-IN-DOCKER: /var/run/docker.sock mount karna zaruri hai
+  # Ye build-controller ko host ke Docker daemon se communicate karne deta hai
+  # Taaki wo 'docker run prod2push/build-runner' call kar sake
+  # ============================================================================
+  build-controller:
+    build:
+      context: .
+      dockerfile: services/build-controller/Dockerfile
+    container_name: prod2push_build_controller
+    image: prod2push/build-controller
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/prod2push
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_FORCE_PATH_STYLE: "true"
+      S3_BUCKET_NAME: prod2push-builds
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      # Build runner image ka naam â€” ye container spawn karne ke liye use hoga
+      BUILD_RUNNER_IMAGE: prod2push/build-runner:latest
+      # Build mode:
+      #   'docker'     â†’ docker run se containers spawn karta hai (default, local dev)
+      #   'kubernetes' â†’ K8s Job API se Jobs create karta hai (minikube/production)
+      # Docker mode ke liye: BUILD_MODE=docker (ya missing)
+      # K8s mode ke liye:    BUILD_MODE=kubernetes
+      BUILD_MODE: docker
+      # K8s namespace jahan build-runner Jobs create honge (sirf K8s mode mein kaam aata hai)
+      K8S_NAMESPACE: prod2push
+      # Image pull policy (K8s mode mein):
+      #   'Never'       = minikube image load se loaded image use karo
+      #   'IfNotPresent'= registry se sirf tab pull karo jab local mein nahi ho
+      IMAGE_PULL_POLICY: Never
+      # Build runner internal network mein connect hota hai, so direct hostnames use karo
+      BUILD_RUNNER_DB_URL: postgresql://postgres:postgres@postgres:5432/prod2push
+      BUILD_RUNNER_S3_ENDPOINT: http://minio:9000
+    volumes:
+      # Docker-in-Docker: Host ka docker socket mount karo
+      # Ye build-controller ko new containers spawn karne deta hai
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+# ==============================================================================
+# NETWORKS
+# Internal network taaki services ek dusre se baat kar sakein
+# 'prod2push-internal' naam ka bridge network create hoga
+# ==============================================================================
+networks:
+  prod2push-internal:
+    driver: bridge
+    name: prod2push-internal
+
+# ==============================================================================
+# VOLUMES
+# Docker inhe host OS par securely store karta hai
+# Container delete hone pe bhi data survive karta hai
+# ==============================================================================
 volumes:
   postgres_data:
+    name: prod2push_postgres_data
   redis_data:
+    name: prod2push_redis_data
+  minio_data:
+    name: prod2push_minio_data

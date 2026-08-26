@@ -1,6 +1,6 @@
-import { config } from '@vercel-pro/config';
-import { logger } from '@vercel-pro/logger';
-import { db } from '@vercel-pro/db';
+import { config } from '@push2prod/config';
+import { logger } from '@push2prod/logger';
+import { db } from '@push2prod/db';
 import { createClient, RedisClientType } from 'redis';
 import { processBuildJob } from './worker';
 import crypto from 'crypto';
@@ -85,6 +85,7 @@ const startWorker = async () => {
 
       if (claimRes && claimRes.messages && claimRes.messages.length > 0) {
         for (const message of claimRes.messages) {
+          if (!message) continue;
           const messageId = message.id;
           const payload = message.message as any;
 

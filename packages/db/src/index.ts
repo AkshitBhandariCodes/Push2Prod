@@ -9,6 +9,13 @@ const globalForPrisma = globalThis as unknown as {
 // Singleton instance export kar rahe hain
 export const db = globalForPrisma.prisma ?? new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  ...(process.env.DATABASE_URL ? {
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    }
+  } : {})
 });
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db;

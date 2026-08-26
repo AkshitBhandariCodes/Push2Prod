@@ -1,16 +1,16 @@
 import { Router, Request, Response } from 'express';
-import { db } from '@vercel-pro/db';
-import { logger } from '@vercel-pro/logger';
+import { db } from '@push2prod/db';
+import { logger } from '@push2prod/logger';
 import { RedisClientType } from 'redis';
 
-// Deploy router factory — redisClient ko parameter mein lega taaki XADD kar sake
+// Deploy router factory â€” redisClient ko parameter mein lega taaki XADD kar sake
 // Factory pattern isliye use kar rahe hain kyunki redisClient index.ts mein create hota hai
 // aur hume use yahan pass karna padta hai
 export const createDeployRouter = (redisClient: RedisClientType) => {
   const router = Router();
 
   // ============================================================
-  // POST /projects/:id/deploy — Deploy trigger karo
+  // POST /projects/:id/deploy â€” Deploy trigger karo
   // Step 1: Project validate karo (exists ya nahi)
   // Step 2: Deployment row create karo DB mein with QUEUED status
   // Step 3: Redis Stream mein XADD karo taaki worker (Phase 4) pick kar sake
@@ -19,10 +19,16 @@ export const createDeployRouter = (redisClient: RedisClientType) => {
   router.post('/:id/deploy', async (req: Request, res: Response) => {
     try {
       const { id: projectId } = req.params;
+      const userId = req.headers['x-user-id'] as string;
 
-      // Step 1: Check karo ki project actually exist karta hai ya nahi
+      if (!userId) {
+        res.status(401).json({ status: 'error', message: 'Unauthorized' });
+        return;
+      }
+
+      // Step 1: Check karo ki project actually exist karta hai ya nahi aur ownership
       const project = await db.project.findUnique({
-        where: { id: projectId },
+        where: { id: projectId, userId },
       });
 
       if (!project) {
@@ -64,9 +70,9 @@ export const createDeployRouter = (redisClient: RedisClientType) => {
         message: `Build queued for project ${project.slug}`,
       };
 
-      // Redis XADD — 'build-events' naam ka stream hai, '*' auto-generates ID
+      // Redis XADD â€” 'build-events' naam ka stream hai, '*' auto-generates ID
       // Agar Redis connected nahi hai toh catch block mein error handle hoga
-      // Lekin deployment row toh already ban chuki hai DB mein — so deploy request lost nahi hogi
+      // Lekin deployment row toh already ban chuki hai DB mein â€” so deploy request lost nahi hogi
       try {
         if (redisClient.isOpen) {
           const streamId = await redisClient.xAdd(
@@ -79,7 +85,7 @@ export const createDeployRouter = (redisClient: RedisClientType) => {
           );
         } else {
           logger.warn(
-            'Redis not connected — deployment created in DB but stream event not published'
+            'Redis not connected â€” deployment created in DB but stream event not published'
           );
         }
       } catch (redisError) {
@@ -88,7 +94,7 @@ export const createDeployRouter = (redisClient: RedisClientType) => {
         logger.error('Failed to publish to Redis Stream:', redisError);
       }
 
-      // Step 4: Response — frontend ko deploymentId aur status bhejo
+      // Step 4: Response â€” frontend ko deploymentId aur status bhejo
       res.status(201).json({
         status: 'success',
         deployment: {
@@ -110,16 +116,22 @@ export const createDeployRouter = (redisClient: RedisClientType) => {
   });
 
   // ============================================================
-  // GET /projects/:id/deployments — Project ki saari deployments list karo
+  // GET /projects/:id/deployments â€” Project ki saari deployments list karo
   // Detail page par deployments table mein ye data dikhega
   // ============================================================
   router.get('/:id/deployments', async (req: Request, res: Response) => {
     try {
       const { id: projectId } = req.params;
+      const userId = req.headers['x-user-id'] as string;
+
+      if (!userId) {
+        res.status(401).json({ status: 'error', message: 'Unauthorized' });
+        return;
+      }
 
       // Pehle check karo ki project exist karta hai
       const project = await db.project.findUnique({
-        where: { id: projectId },
+        where: { id: projectId, userId },
       });
 
       if (!project) {
@@ -130,11 +142,11 @@ export const createDeployRouter = (redisClient: RedisClientType) => {
         return;
       }
 
-      // Saari deployments fetch karo — latest pehle
+      // Saari deployments fetch karo â€” latest pehle
       const deployments = await db.deployment.findMany({
         where: { projectId },
         orderBy: { createdAt: 'desc' },
-        take: 20, // Performance ke liye limit — pagination baad mein aayega
+        take: 20, // Performance ke liye limit â€” pagination baad mein aayega
       });
 
       res.json({

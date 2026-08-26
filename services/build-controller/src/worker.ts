@@ -1,5 +1,5 @@
-import { db } from '@vercel-pro/db';
-import { logger } from '@vercel-pro/logger';
+import { db } from '@push2prod/db';
+import { logger } from '@push2prod/logger';
 import { RedisClientType } from 'redis';
 import { performCloneAndBuild } from './build';
 

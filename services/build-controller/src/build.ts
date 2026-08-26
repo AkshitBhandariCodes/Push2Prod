@@ -1,14 +1,39 @@
-import { db } from '@vercel-pro/db';
-import { logger } from '@vercel-pro/logger';
-import simpleGit from 'simple-git';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+/**
+ * ============================================================================
+ * BUILD CONTROLLER — build.ts  (Phase 16-17: K8s Migration)
+ * ============================================================================
+ *
+ * YE FILE KYA KARTA HAI:
+ *   Ye orchestration layer hai — docker run ya K8s Job, dono support karta hai.
+ *
+ * BUILD_MODE environment variable se decide hota hai kaunsa mode use karo:
+ *
+ *   BUILD_MODE=docker      → Old approach: docker run spawn karta hai
+ *                             (docker-compose ke saath local dev ke liye)
+ *
+ *   BUILD_MODE=kubernetes  → New approach: K8s Job API use karta hai
+ *                             (Minikube ya production K8s cluster ke liye)
+ *
+ * KUCH IMPORTANT CHANGES (Phase 16-17):
+ *   - K8s mode mein docker CLI ki zarurat nahi (koi docker.sock nahi chahiye)
+ *   - K8s mode mein credentials K8s Secrets se aate hain (env vars nahi)
+ *   - Cancellation K8s Job delete karke hoti hai (docker stop nahi)
+ *
+ * ============================================================================
+ */
 
+import { db } from '@push2prod/db';
+import { logger } from '@push2prod/logger';
+import { exec, spawn } from 'child_process';
+import { promisify } from 'util';
+import { spawnK8sJob } from './k8s-executor';
+
+// exec ke liye promise wrapper
 const execAsync = promisify(exec);
 
+// ============================================================================
+// Build options interface — worker.ts se aata hai
+// ============================================================================
 interface BuildOptions {
   deploymentId: string;
   repositoryUrl: string;
@@ -19,107 +44,299 @@ interface BuildOptions {
   workerId: string;
 }
 
-// DB log function — frontend logs stream ya page reload par yahi se read karega
-const logEvent = async (deploymentId: string, message: string, type: 'START' | 'INFO' | 'WARNING' | 'ERROR' | 'END' = 'INFO') => {
-  await db.buildLog.create({
-    data: { deploymentId, message }
-  });
-  await db.buildEvent.create({
-    data: { deploymentId, type, message }
-  });
+// ============================================================================
+// HELPER: DB Log writer
+// Frontend logs page yahan se read karta hai
+// ============================================================================
+const logEvent = async (
+  deploymentId: string,
+  message: string,
+  type: 'START' | 'INFO' | 'WARNING' | 'ERROR' | 'END' = 'INFO'
+) => {
+  // BuildLog — frontend polling ya logs page se read karta hai
+  await db.buildLog.create({ data: { deploymentId, message } });
+  // BuildEvent — type-based filtering ke liye (real-time events)
+  await db.buildEvent.create({ data: { deploymentId, type, message } });
 };
 
+// ============================================================================
+// MAIN: performCloneAndBuild
+// Ye function worker.ts call karta hai — redis stream se event uthane ke baad
+// ============================================================================
 export const performCloneAndBuild = async (options: BuildOptions): Promise<boolean> => {
-  const { deploymentId, repositoryUrl, branch, buildCommand, outputDir, rootDir, workerId } = options;
-  
-  // OS independent temporary directory
-  const workspacePath = path.join(os.tmpdir(), 'vercel-pro-builds', deploymentId);
+  const {
+    deploymentId,
+    repositoryUrl,
+    branch,
+    buildCommand,
+    outputDir,
+    rootDir,
+    workerId,
+  } = options;
+
+  // ==========================================================================
+  // BUILD MODE DETECTION
+  // BUILD_MODE env var se decide karo kaunsa executor use karna hai
+  // ==========================================================================
+  const buildMode = process.env.BUILD_MODE || 'docker';
+
+  logger.info(`[${workerId}] Build mode: ${buildMode.toUpperCase()} for deployment ${deploymentId}`);
+
+  // ==========================================================================
+  // DB STATUS UPDATE: BUILDING
+  // Worker se status BUILDING mark karo
+  // ==========================================================================
+  await db.deployment.update({
+    where: { id: deploymentId },
+    data: { status: 'BUILDING' },
+  });
+
+  await logEvent(deploymentId, `[${workerId}] Build started (mode: ${buildMode})`, 'START');
+
+  // ==========================================================================
+  // KUBERNETES MODE
+  // K8s Job API use karo — build-runner Pod schedule hoga
+  // ==========================================================================
+  if (buildMode === 'kubernetes') {
+    try {
+      // Project ke custom env vars bhi build ko pass karne hain
+      const deployment = await db.deployment.findUnique({
+        where: { id: deploymentId },
+        include: { project: { include: { envVars: true } } },
+      });
+
+      // Project env vars ko "KEY1=VAL1,KEY2=VAL2" format mein format karo
+      const customEnvVars = (deployment?.project?.envVars || [])
+        .map((ev) => `${ev.key}=${ev.value}`)
+        .join(',');
+
+      await logEvent(deploymentId, `Spawning isolated build container: push2prod/build-runner`);
+
+      // K8s executor ko call karo — ye Job create karega aur wait karega
+      const success = await spawnK8sJob({
+        deploymentId,
+        repositoryUrl,
+        branch,
+        buildCommand,
+        outputDir,
+        rootDir,
+        workerId,
+        customEnvVars,
+      });
+
+      // DB update on completion
+      await db.deployment.update({
+        where: { id: deploymentId },
+        data: {
+          status: success ? 'READY' : 'ERROR',
+          lockedBy: null,
+          lockedUntil: null,
+        },
+      });
+
+      return success;
+
+    } catch (error: any) {
+      logger.error(`[${workerId}] K8s mode unexpected error for ${deploymentId}:`, error);
+      try {
+        await logEvent(deploymentId, `BUILD FAILED (K8s): ${error.message || 'Unknown error'}`, 'ERROR');
+        await db.deployment.update({
+          where: { id: deploymentId },
+          data: { status: 'ERROR' },
+        });
+      } catch (dbErr) {
+        logger.error(`[${workerId}] Failed to update DB on K8s error:`, dbErr);
+      }
+      return false;
+    }
+  }
+
+  // ==========================================================================
+  // DOCKER MODE (Default — backward compatible)
+  // docker run use karo — existing local docker-compose ke saath kaam karta hai
+  // ==========================================================================
+
+  // Container naam — unique hona chahiye taaki parallel builds clash na karein
+  const containerName = `build-runner-${deploymentId.slice(0, 8)}`;
+
+  // Cancellation polling interval — har 5 sec mein DB check karega
+  let pollInterval: NodeJS.Timeout | null = null;
+  // Docker process reference — cancel hone pe kill kar sakte hain
+  let dockerProcess: ReturnType<typeof spawn> | null = null;
 
   try {
-    await logEvent(deploymentId, `[${workerId}] Starting build process...`, 'START');
-    
-    // ==========================================
-    // PHASE 6: Real GitHub Clone
-    // ==========================================
-    if (!repositoryUrl) {
-      throw new Error('Repository URL is missing. Cannot proceed.');
-    }
+    // ==========================================================================
+    // ENV VARS PREPARE: Build runner ko kya pass karna hai
+    // Build-runner container yahi env vars padh ke kaam karta hai
+    // ==========================================================================
+    const buildRunnerImage =
+      process.env.BUILD_RUNNER_IMAGE || 'push2prod/build-runner';
 
-    await logEvent(deploymentId, `Creating workspace at ${workspacePath}`);
-    await fs.mkdir(workspacePath, { recursive: true });
+    const dbUrl =
+      process.env.BUILD_RUNNER_DB_URL ||
+      process.env.DATABASE_URL ||
+      'postgresql://postgres:postgres@postgres:5432/prod2push';
 
-    const git = simpleGit(workspacePath);
+    const s3Endpoint =
+      process.env.BUILD_RUNNER_S3_ENDPOINT ||
+      process.env.S3_ENDPOINT ||
+      'http://minio:9000';
 
-    await logEvent(deploymentId, `Cloning repository: ${repositoryUrl}`);
-    await git.clone(repositoryUrl, '.'); // current folder (.) mein clone
-    
-    await logEvent(deploymentId, `Checking out branch: ${branch}`);
-    await git.checkout(branch);
+    const s3Bucket = process.env.S3_BUCKET_NAME || 'push2prod-builds';
+    const s3AccessKey = process.env.S3_ACCESS_KEY || 'minioadmin';
+    const s3SecretKey = process.env.S3_SECRET_KEY || 'minioadmin';
 
-    const projectRootPath = path.join(workspacePath, rootDir);
-    try {
-      const stats = await fs.stat(projectRootPath);
-      if (!stats.isDirectory()) throw new Error('Not a directory');
-    } catch (err) {
-      throw new Error(`Configured root directory '${rootDir}' does not exist in repository.`);
-    }
-
-    await logEvent(deploymentId, 'Repository cloned successfully');
-
-    // ==========================================
-    // PHASE 7: Real Build Execution
-    // ==========================================
-    // Verify package.json exists (assuming Node.js project for now)
-    const packageJsonPath = path.join(projectRootPath, 'package.json');
-    try {
-      await fs.stat(packageJsonPath);
-    } catch {
-      throw new Error('No package.json found. Currently only Node.js projects are supported.');
-    }
-
-    await logEvent(deploymentId, 'Running npm install...');
-    // execAsync output capture karke logs mein daalega
-    const { stdout: installOut, stderr: installErr } = await execAsync('npm install', { 
-      cwd: projectRootPath,
-      timeout: 5 * 60000 // 5 min timeout
-    });
-    
-    // Optionally log some of the stdout, but keep it brief so DB doesn't explode
-    await db.buildLog.create({ data: { deploymentId, message: 'npm install completed' } });
-
-    await logEvent(deploymentId, `Executing build command: ${buildCommand}`);
-    const { stdout: buildOut, stderr: buildErr } = await execAsync(buildCommand, { 
-      cwd: projectRootPath,
-      timeout: 10 * 60000 // 10 min timeout
+    // Project ke custom env vars bhi build ko pass karne hain
+    const deployment = await db.deployment.findUnique({
+      where: { id: deploymentId },
+      include: { project: { include: { envVars: true } } },
     });
 
-    await db.buildLog.create({ data: { deploymentId, message: 'Build command finished' } });
+    // Project env vars ko KEY=VALUE format mein format karo
+    const customEnvVars = (deployment?.project?.envVars || [])
+      .map((ev) => `${ev.key}=${ev.value}`)
+      .join(',');
 
-    // Validate Output Directory exists
-    const finalOutputDir = path.join(projectRootPath, outputDir);
-    try {
-      const outStats = await fs.stat(finalOutputDir);
-      if (!outStats.isDirectory()) throw new Error('Output is not a directory');
-    } catch (err) {
-      throw new Error(`Build finished, but output directory '${outputDir}' was not found. Check your build command and output directory settings.`);
+    // ==========================================================================
+    // DOCKER RUN COMMAND PREPARE
+    // ==========================================================================
+    const dockerArgs = [
+      'run',
+      '--rm',                                          // Auto-cleanup after exit
+      '--name', containerName,                         // Unique naam
+      '--memory', '1.5g',                              // Max 1.5GB RAM
+      '--memory-swap', '1.5g',                         // Swap bhi limit karo
+      '--cpus', '2',                                   // Max 2 CPU cores
+      '--network', 'prod2push-internal',              // Internal network access (MinIO)
+      '--cap-drop', 'ALL',                             // Sabhi Linux capabilities drop karo
+      '--security-opt', 'no-new-privileges:true',      // Privilege escalation block karo
+      '-e', `DEPLOYMENT_ID=${deploymentId}`,
+      '-e', `REPO_URL=${repositoryUrl}`,
+      '-e', `BRANCH=${branch}`,
+      '-e', `BUILD_CMD=${buildCommand}`,
+      '-e', `OUTPUT_DIR=${outputDir}`,
+      '-e', `ROOT_DIR=${rootDir}`,
+      '-e', `DATABASE_URL=${dbUrl}`,
+      '-e', `S3_ENDPOINT=${s3Endpoint}`,
+      '-e', `S3_BUCKET_NAME=${s3Bucket}`,
+      '-e', `S3_ACCESS_KEY_ID=${s3AccessKey}`,
+      '-e', `S3_SECRET_ACCESS_KEY=${s3SecretKey}`,
+      '-e', `CUSTOM_ENV_VARS=${customEnvVars}`,
+      '-e', `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`,
+      '--label', `push2prod.deployment=${deploymentId}`,
+      '--label', `push2prod.worker=${workerId}`,
+      buildRunnerImage,
+    ];
+
+    await logEvent(
+      deploymentId,
+      `Spawning isolated build container: ${buildRunnerImage}`
+    );
+
+    // ==========================================================================
+    // CANCELLATION POLLING SETUP
+    // ==========================================================================
+    const setupCancellationPoller = () => {
+      pollInterval = setInterval(async () => {
+        try {
+          const d = await db.deployment.findUnique({
+            where: { id: deploymentId },
+            select: { status: true },
+          });
+
+          if (d?.status === 'CANCELLED') {
+            logger.info(`[${workerId}] Deployment ${deploymentId} cancelled. Killing container...`);
+            clearInterval(pollInterval!);
+            pollInterval = null;
+
+            try {
+              await execAsync(`docker stop ${containerName} --time 5`);
+              await logEvent(deploymentId, 'Build container stopped due to cancellation.', 'WARNING');
+            } catch {
+              // Container already dead — ignore
+            }
+          }
+        } catch { /* DB error — quietly ignore */ }
+      }, 5000);
+    };
+
+    setupCancellationPoller();
+
+    // ==========================================================================
+    // DOCKER RUN — BLOCKING
+    // ==========================================================================
+    const exitCode = await new Promise<number>((resolve) => {
+      dockerProcess = spawn('docker', dockerArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      dockerProcess.stdout?.on('data', (data: Buffer) => {
+        const line = data.toString().trim();
+        if (line) logger.info(`[build-runner:${deploymentId.slice(0, 8)}] ${line}`);
+      });
+
+      dockerProcess.stderr?.on('data', (data: Buffer) => {
+        const line = data.toString().trim();
+        if (line) logger.warn(`[build-runner:${deploymentId.slice(0, 8)}] ${line}`);
+      });
+
+      dockerProcess.on('close', (code) => {
+        resolve(code ?? 1);
+      });
+
+      dockerProcess.on('error', (err) => {
+        logger.error(`[${workerId}] Docker spawn error:`, err);
+        resolve(1);
+      });
+    });
+
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
     }
 
-    await logEvent(deploymentId, 'Build completed successfully. Output directory verified.', 'END');
-    
-    // CLEANUP Phase
-    await fs.rm(workspacePath, { recursive: true, force: true });
-    
-    return true; // Success!
+    if (exitCode === 0) {
+      await logEvent(deploymentId, `Build container exited successfully (exit code 0).`, 'END');
+      return true;
+    } else {
+      const currentDeployment = await db.deployment.findUnique({
+        where: { id: deploymentId },
+        select: { status: true },
+      });
 
+      if (currentDeployment?.status !== 'CANCELLED') {
+        await logEvent(
+          deploymentId,
+          `Build container exited with error (exit code ${exitCode}).`,
+          'ERROR'
+        );
+        await db.deployment.update({
+          where: { id: deploymentId },
+          data: { status: 'ERROR' },
+        });
+      }
+      return false;
+    }
   } catch (error: any) {
-    logger.error(`[${workerId}] Build failed for ${deploymentId}:`, error);
-    await logEvent(deploymentId, `BUILD FAILED: ${error.message}`, 'ERROR');
-    
-    // Always attempt cleanup on failure too
+    logger.error(`[${workerId}] Unexpected Docker error for ${deploymentId}:`, error);
     try {
-      await fs.rm(workspacePath, { recursive: true, force: true });
-    } catch (e) {}
-
-    return false; // Failed
+      await logEvent(deploymentId, `BUILD FAILED: ${error.message || 'Unknown error'}`, 'ERROR');
+      await db.deployment.update({
+        where: { id: deploymentId },
+        data: { status: 'ERROR' },
+      });
+    } catch (dbErr) {
+      logger.error(`[${workerId}] Failed to update DB on unexpected error:`, dbErr);
+    }
+    return false;
+  } finally {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+    }
+    if (dockerProcess && !(dockerProcess as any).killed) {
+      try {
+        (dockerProcess as any).kill('SIGTERM');
+      } catch {}
+    }
   }
 };

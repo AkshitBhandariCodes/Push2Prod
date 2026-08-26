@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { fetchApi } from '@/lib/api';
 
 // ---- Types ----
 // Backend se aane wala project ka shape define kar rahe hain
@@ -18,7 +20,7 @@ interface Project {
   };
 }
 
-// Status badge ke liye color mapping — har status ka apna color
+// Status badge ke liye color mapping â€” har status ka apna color
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   ACTIVE: { bg: 'bg-success/10', text: 'text-success', dot: 'bg-success' },
   DEPLOYING: { bg: 'bg-warning/10', text: 'text-warning', dot: 'bg-warning' },
@@ -35,20 +37,20 @@ function formatDate(dateStr: string): string {
   });
 }
 
-// Repo URL ko truncate karna — display ke liye chhota banana
+// Repo URL ko truncate karna â€” display ke liye chhota banana
 function truncateUrl(url: string | null): string {
-  if (!url) return '—';
+  if (!url) return 'â€”';
   try {
     const parsed = new URL(url);
     // "github.com/username/repo" format mein dikhao
     return parsed.host + parsed.pathname.replace(/\.git$/, '');
   } catch {
-    return url.length > 40 ? url.substring(0, 40) + '…' : url;
+    return url.length > 40 ? url.substring(0, 40) + 'â€¦' : url;
   }
 }
 
 // ---- Status Badge Component ----
-// Reusable badge — dot + label ke saath
+// Reusable badge â€” dot + label ke saath
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] || STATUS_STYLES.INACTIVE;
   return (
@@ -77,17 +79,22 @@ function SkeletonCard() {
 
 // ---- Main Page Component ----
 export default function ProjectsPage() {
-  // State management — projects, loading aur error track karna
+  // State management â€” projects, loading aur error track karna
+  const { data: session, status } = useSession();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // API se projects fetch karne ka function
   const fetchProjects = async () => {
+    if (!session?.user?.id) return;
+    
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('http://localhost:4001/projects');
+      const res = await fetchApi('/projects', {
+        headers: { 'x-user-id': session.user.id }
+      });
       if (!res.ok) throw new Error(`Server responded with ${res.status}`);
       const data = await res.json();
 
@@ -104,14 +111,19 @@ export default function ProjectsPage() {
     }
   };
 
-  // Component mount hone par ek baar fetch karo
+  // Jab bhi session ka status change ho tab fetch karo
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    if (status === 'authenticated') {
+      fetchProjects();
+    } else if (status === 'unauthenticated') {
+      setLoading(false);
+      setError('Please sign in to view your projects.');
+    }
+  }, [status, session]);
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
-      {/* Header — title aur new project button */}
+      {/* Header â€” title aur new project button */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-text-ink tracking-tight">Projects</h1>
@@ -123,7 +135,7 @@ export default function ProjectsPage() {
           href="/projects/new"
           className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-hover"
         >
-          {/* Plus icon — SVG se banaya hai */}
+          {/* Plus icon â€” SVG se banaya hai */}
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
@@ -131,7 +143,7 @@ export default function ProjectsPage() {
         </Link>
       </div>
 
-      {/* Loading State — skeleton cards dikhao jab tak data aaye */}
+      {/* Loading State â€” skeleton cards dikhao jab tak data aaye */}
       {loading && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -140,7 +152,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Error State — retry button ke saath red error message */}
+      {/* Error State â€” retry button ke saath red error message */}
       {!loading && error && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-error/20 bg-error/5 px-6 py-16 text-center">
           <svg className="mb-4 h-10 w-10 text-error" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -157,7 +169,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Empty State — jab koi project na ho */}
+      {/* Empty State â€” jab koi project na ho */}
       {!loading && !error && projects.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border-hairline px-6 py-20 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-border-hairline bg-card-bg">
@@ -167,7 +179,7 @@ export default function ProjectsPage() {
           </div>
           <h3 className="text-base font-semibold text-text-ink mb-1">No Projects Yet</h3>
           <p className="text-sm text-text-mute mb-6 max-w-sm">
-            Get started by creating your first project to deploy on Vercel-Pro.
+            Get started by creating your first project to deploy on Push2Prod.
           </p>
           <Link
             href="/projects/new"
@@ -178,7 +190,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Projects Grid — responsive cards ka grid */}
+      {/* Projects Grid â€” responsive cards ka grid */}
       {!loading && !error && projects.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
@@ -195,15 +207,15 @@ export default function ProjectsPage() {
                 <StatusBadge status={project.status} />
               </div>
 
-              {/* Slug — mono font mein */}
+              {/* Slug â€” mono font mein */}
               <p className="text-sm font-mono text-text-mute mb-3">{project.slug}</p>
 
-              {/* Repo URL — truncated */}
+              {/* Repo URL â€” truncated */}
               <p className="text-xs text-text-body truncate mb-4" title={project.repositoryUrl || undefined}>
                 {truncateUrl(project.repositoryUrl)}
               </p>
 
-              {/* Footer — deployment count aur created date */}
+              {/* Footer â€” deployment count aur created date */}
               <div className="flex items-center justify-between border-t border-border-hairline pt-3">
                 <span className="text-xs text-text-mute">
                   {project._count.deployments} deployment{project._count.deployments !== 1 ? 's' : ''}

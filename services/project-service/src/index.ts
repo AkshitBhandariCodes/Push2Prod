@@ -1,18 +1,18 @@
 // ============================================================
-// Project Service — Express API Gateway
+// Project Service â€” Express API Gateway
 // Ye service saare project-related endpoints handle karti hai
 // Config ko sabse pehle import karte hain taaki .env variables load ho sakein
 // ============================================================
 
-import { config } from '@vercel-pro/config';
-import { logger } from '@vercel-pro/logger';
+import { config } from '@push2prod/config';
+import { logger } from '@push2prod/logger';
 
 import express from 'express';
 import cors from 'cors';
 import { Pool } from 'pg';
 import { createClient, RedisClientType } from 'redis';
 
-// Route handlers import — har route file ek specific feature handle karti hai
+// Route handlers import â€” har route file ek specific feature handle karti hai
 import debugRouter from './routes/debug';
 import projectsRouter from './routes/projects';
 import { createDeployRouter } from './routes/deploy';
@@ -21,15 +21,14 @@ import deploymentsRouter from './routes/deployments';
 // Express app initialize kar rahe hain
 const app = express();
 
-// Middleware setup:
-// cors() — frontend (port 3000) se backend (port 4001) par requests allow karne ke liye
-// express.json() — incoming JSON request bodies ko automatically parse karega
-app.use(cors());
+// ============================================================
+// Middleware Configurations
+// JSON body parse karne ke liye taaki POST body (jaise GitHub repo link) access kar sake
 app.use(express.json());
 
 // ============================================================
 // Database Connection Pool
-// pg Pool use karte hain health check ke liye — Prisma ORM queries ke liye @vercel-pro/db use hota hai
+// pg Pool use karte hain health check ke liye â€” Prisma ORM queries ke liye @push2prod/db use hota hai
 // ============================================================
 const pgPool = new Pool({
   connectionString: config.databaseUrl,
@@ -44,7 +43,7 @@ const redisClient = createClient({
   url: config.redisUrl,
 }) as RedisClientType;
 
-// Redis connection errors ko log karo — ye background mein fire hota rahega agar Redis offline hai
+// Redis connection errors ko log karo â€” ye background mein fire hota rahega agar Redis offline hai
 redisClient.on('error', (err) => logger.error('Redis connection error', err));
 
 // ============================================================
@@ -52,13 +51,13 @@ redisClient.on('error', (err) => logger.error('Redis connection error', err));
 // Har feature ka apna router hai jo specific URL prefix par mount hota hai
 // ============================================================
 
-// Debug routes — /debug/db-counts (development ke liye table counts)
+// Debug routes â€” /debug/db-counts (development ke liye table counts)
 app.use('/debug', debugRouter);
 
-// Project CRUD routes — /projects (create, list, detail)
+// Project CRUD routes â€” /projects (create, list, detail)
 app.use('/projects', projectsRouter);
 
-// Deploy routes — /projects/:id/deploy, /projects/:id/deployments
+// Deploy routes â€” /projects/:id/deploy, /projects/:id/deployments
 // createDeployRouter ek factory function hai jo redisClient accept karta hai
 // (taaki deploy route Redis Stream mein XADD kar sake)
 app.use('/projects', createDeployRouter(redisClient));
@@ -75,7 +74,7 @@ app.get('/health', async (req, res) => {
   let dbStatus = 'disconnected';
   let redisStatus = 'disconnected';
 
-  // PostgreSQL health check — simple SELECT NOW() query chalate hain
+  // PostgreSQL health check â€” simple SELECT NOW() query chalate hain
   try {
     const dbResult = await pgPool.query('SELECT NOW()');
     if (dbResult.rows.length > 0) {
@@ -85,7 +84,7 @@ app.get('/health', async (req, res) => {
     logger.error('Database health check failed:', error);
   }
 
-  // Redis health check — PING command bhejte hain, PONG aana chahiye
+  // Redis health check â€” PING command bhejte hain, PONG aana chahiye
   try {
     if (redisClient.isOpen) {
       const pingRes = await redisClient.ping();
@@ -117,7 +116,7 @@ app.get('/health', async (req, res) => {
 // (Agar Redis offline hai toh bhi Express port par listen karega)
 // ============================================================
 const startServer = async () => {
-  // Redis client.connect() ko await nahi karenge — background mein connect hoga
+  // Redis client.connect() ko await nahi karenge â€” background mein connect hoga
   // Isse humara express server turant start ho jayega
   redisClient.connect()
     .then(() => {

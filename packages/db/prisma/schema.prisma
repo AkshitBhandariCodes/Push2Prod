@@ -1,4 +1,4 @@
-// Vercel-Pro ka PostgreSQL database schema
+// Push2Prod ka PostgreSQL database schema
 // Ye file project ki structural neenv (database tables) define karti hai
 
 datasource db {
@@ -8,19 +8,20 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 // --- ENUMS (Postgres native enum types banenge db migrations me) ---
 
-// Project ka operational status — project abhi active hai, inactive hai, ya deploy ho raha hai
+// Project ka operational status â€” project abhi active hai, inactive hai, ya deploy ho raha hai
 enum ProjectStatus {
   ACTIVE
   INACTIVE
   DEPLOYING
 }
 
-// Har deploy request ki workflow state — QUEUED se lekar READY ya ERROR tak
+// Har deploy request ki workflow state â€” QUEUED se lekar READY ya ERROR tak
 enum DeploymentStatus {
   QUEUED
   PENDING
@@ -30,7 +31,7 @@ enum DeploymentStatus {
   CANCELLED
 }
 
-// Build progress timeline events ke types — jaise start, info, warning, error, end
+// Build progress timeline events ke types â€” jaise start, info, warning, error, end
 enum BuildEventStatus {
   START
   INFO
@@ -41,22 +42,62 @@ enum BuildEventStatus {
 
 // --- MODELS ---
 
-// User: Developer account — holds basic user info (email, name)
+// User: Developer account â€” holds basic user info (email, name)
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  name      String?
-  createdAt DateTime  @default(now())
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  name          String?
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
 
   // Relations: Ek developer ke paas multiple projects ho sakte hain
   projects  Project[]
+  accounts  Account[]
+  sessions  Session[]
 }
 
-// Project: App settings — name, slug (URL-friendly identifier), repo link, build config
+// NextAuth Required Models
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Project: App settings â€” name, slug (URL-friendly identifier), repo link, build config
 model Project {
   id            String          @id @default(uuid())
-  name          String          // Display name — "My Portfolio Site"
-  slug          String          @unique // URL-friendly identifier — "my-portfolio-site"
+  name          String          // Display name â€” "My Portfolio Site"
+  slug          String          @unique // URL-friendly identifier â€” "my-portfolio-site"
   repositoryUrl String?         // Git repository URL (optional, user baad mein bhi add kar sakta hai)
   branch        String          @default("main") // Git branch to deploy from
   buildCommand  String          @default("npm run build") // Build command jo container mein chalegi
@@ -86,6 +127,14 @@ model Deployment {
   lockedUntil   DateTime?        // Time until lock expires
   lastError     String?          // Log of the last error if failed
   
+  // Phase 8: Object Storage fields
+  artifactBucket      String?
+  artifactPrefix      String?   // Base S3 prefix for all uploaded files (e.g. deployments/<id>)
+  serveDir            String?   // Relative sub-path within artifactPrefix where index.html lives
+                                // e.g. '' (root), 'public', 'out' â€” auto-detected by build-runner
+  uploadedFilesCount  Int?
+  artifactUploadedAt  DateTime?
+
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 

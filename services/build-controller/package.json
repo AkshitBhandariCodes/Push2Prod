@@ -1,5 +1,5 @@
 {
-  "name": "@vercel-pro/build-controller",
+  "name": "@push2prod/build-controller",
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
@@ -8,16 +8,20 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1084.0",
+    "@kubernetes/client-node": "^1.0.0",
+    "@push2prod/config": "workspace:*",
+    "@push2prod/contracts": "workspace:*",
+    "@push2prod/db": "workspace:*",
+    "@push2prod/logger": "workspace:*",
+    "mime-types": "^3.0.2",
     "redis": "^4.6.10",
-    "simple-git": "^3.22.0",
-    "@vercel-pro/logger": "workspace:*",
-    "@vercel-pro/config": "workspace:*",
-    "@vercel-pro/db": "workspace:*",
-    "@vercel-pro/contracts": "workspace:*"
+    "simple-git": "^3.22.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@types/mime-types": "^3.0.1",
     "@types/node": "^20.0.0",
-    "ts-node-dev": "^2.0.0"
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.0.0"
   }
 }

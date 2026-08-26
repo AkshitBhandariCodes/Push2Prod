@@ -1,7 +1,7 @@
 import { Router } from 'express';
 // Hamaare singleton database module ko import kar rahe hain
-import { db } from '@vercel-pro/db';
-import { logger } from '@vercel-pro/logger';
+import { db } from '@push2prod/db';
+import { logger } from '@push2prod/logger';
 
 const router = Router();
 
