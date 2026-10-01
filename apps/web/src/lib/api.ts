@@ -4,11 +4,23 @@
 // hum API Gateway (BFF) ko port 4000 par hit karenge.
 // ============================================================
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    // Browser runtime: use the current page's hostname so it works
+    // on both AWS EC2 (98.93.56.187) and local dev without hardcoding.
+    if (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.includes('localhost')) {
+      return process.env.NEXT_PUBLIC_API_URL.endsWith('/api') 
+        ? process.env.NEXT_PUBLIC_API_URL 
+        : `${process.env.NEXT_PUBLIC_API_URL}/api`;
+    }
+    return `${window.location.protocol}//${window.location.hostname}:4000/api`;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+}
 
 export async function fetchApi(path: string, options: RequestInit = {}) {
-  // Agar path absolute hai (jaise real URLs), to direct call karo, nahi to Gateway url prepend karo
-  const url = path.startsWith('http') ? path : `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const baseUrl = getApiBaseUrl();
+  const url = path.startsWith('http') ? path : `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
   
   const headers = new Headers(options.headers);
   
