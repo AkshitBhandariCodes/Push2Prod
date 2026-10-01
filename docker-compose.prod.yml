@@ -1,0 +1,130 @@
+name: prod2push-prod
+
+services:
+  # ============================================================================
+  # INFRASTRUCTURE: Redis Message Stream (Local on EC2)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: prod2push_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: Next.js Web Dashboard
+  # ============================================================================
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: prod2push_web
+    image: prod2push/web
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: API Gateway (BFF Proxy)
+  # ============================================================================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    container_name: prod2push_api_gateway
+    image: prod2push/api-gateway
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      PROJECT_SERVICE_URL: http://project-service:3002
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: Project Service
+  # ============================================================================
+  project-service:
+    build:
+      context: .
+      dockerfile: services/project-service/Dockerfile
+    container_name: prod2push_project_service
+    image: prod2push/project-service
+    ports:
+      - "3002:3002"
+    env_file:
+      - .env
+    environment:
+      PROJECT_SERVICE_PORT: "3002"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # APPLICATION: Routing Service (Subdomain Proxy for S3)
+  # ============================================================================
+  routing-service:
+    build:
+      context: .
+      dockerfile: services/routing-service/Dockerfile
+    container_name: prod2push_routing_service
+    image: prod2push/routing-service
+    ports:
+      - "4002:4002"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+  # ============================================================================
+  # WORKER: Build Controller (Spawns Docker-in-Docker build-runner)
+  # ============================================================================
+  build-controller:
+    build:
+      context: .
+      dockerfile: services/build-controller/Dockerfile
+    container_name: prod2push_build_controller
+    image: prod2push/build-controller
+    env_file:
+      - .env
+    environment:
+      BUILD_RUNNER_IMAGE: prod2push/build-runner:latest
+      BUILD_MODE: docker
+      BUILD_RUNNER_DB_URL: ${DATABASE_URL}
+      BUILD_RUNNER_S3_ENDPOINT: ${S3_ENDPOINT:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - prod2push-internal
+
+networks:
+  prod2push-internal:
+    driver: bridge
+    name: prod2push-internal
+
+volumes:
+  redis_data:
+    name: prod2push_redis_data
