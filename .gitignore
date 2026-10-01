@@ -47,7 +47,6 @@ scratch_clone/
 
 # Reports and Documentation
 Report/
-docs/
 implementation_plan.md
 walkthrough.md
 system_design_aws.md
