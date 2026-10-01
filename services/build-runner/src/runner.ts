@@ -61,10 +61,7 @@ const requiredEnvVars = [
   'OUTPUT_DIR',
   'ROOT_DIR',
   'DATABASE_URL',
-  'S3_ENDPOINT',
   'S3_BUCKET_NAME',
-  'S3_ACCESS_KEY_ID',
-  'S3_SECRET_ACCESS_KEY',
 ];
 
 for (const envVar of requiredEnvVars) {
@@ -75,33 +72,41 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
-// Sab env vars ek baar parse kar lo — type safety ke liye
+// Sab env vars parse kar lo — type safety ke liye
 const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID!;
 const REPO_URL = process.env.REPO_URL!;
 const BRANCH = process.env.BRANCH!;
 const BUILD_CMD = process.env.BUILD_CMD!;
 const OUTPUT_DIR = process.env.OUTPUT_DIR!;
 const ROOT_DIR = process.env.ROOT_DIR!;
-const S3_ENDPOINT = process.env.S3_ENDPOINT!;
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME!;
-const S3_ACCESS_KEY_ID = process.env.S3_ACCESS_KEY_ID!;
-const S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY!;
+const S3_ENDPOINT = process.env.S3_ENDPOINT;
+const S3_ACCESS_KEY_ID = process.env.S3_ACCESS_KEY_ID;
+const S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY;
 const S3_REGION = process.env.S3_REGION || 'us-east-1';
+const S3_FORCE_PATH_STYLE = process.env.S3_FORCE_PATH_STYLE === 'true';
 
 // ============================================================================
 // S3 CLIENT SETUP
-// MinIO compatible S3 client — forcePathStyle zaruri hai MinIO ke liye
+// MinIO compatible S3 client (forcePathStyle) or Real AWS S3 with IAM Role / credentials
 // ============================================================================
-const s3Client = new S3Client({
-  endpoint: S3_ENDPOINT,
+const s3Config: any = {
   region: S3_REGION,
-  credentials: {
+  forcePathStyle: S3_FORCE_PATH_STYLE,
+};
+
+if (S3_ENDPOINT && S3_ENDPOINT.trim() !== '') {
+  s3Config.endpoint = S3_ENDPOINT;
+}
+
+if (S3_ACCESS_KEY_ID && S3_SECRET_ACCESS_KEY) {
+  s3Config.credentials = {
     accessKeyId: S3_ACCESS_KEY_ID,
     secretAccessKey: S3_SECRET_ACCESS_KEY,
-  },
-  // MinIO virtual-host style URLs support nahi karta, path style use karna padta hai
-  forcePathStyle: true,
-});
+  };
+}
+
+const s3Client = new S3Client(s3Config);
 
 // ============================================================================
 // HELPER: DB Log writer

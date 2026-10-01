@@ -21,10 +21,10 @@ export const config = {
 
   // S3 Object Storage Config
   s3: {
-    endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
+    endpoint: process.env.S3_ENDPOINT && process.env.S3_ENDPOINT.trim() !== '' ? process.env.S3_ENDPOINT : undefined,
     region: process.env.S3_REGION || 'us-east-1',
-    accessKeyId: process.env.S3_ACCESS_KEY || 'minioadmin',
-    secretAccessKey: process.env.S3_SECRET_KEY || 'minioadmin',
+    accessKeyId: process.env.S3_ACCESS_KEY || process.env.S3_ACCESS_KEY_ID || undefined,
+    secretAccessKey: process.env.S3_SECRET_KEY || process.env.S3_SECRET_ACCESS_KEY || undefined,
     bucketName: process.env.S3_BUCKET_NAME || 'push2prod-artifacts',
     forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
   },

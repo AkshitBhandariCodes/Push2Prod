@@ -180,11 +180,13 @@ export const performCloneAndBuild = async (options: BuildOptions): Promise<boole
     const s3Endpoint =
       process.env.BUILD_RUNNER_S3_ENDPOINT ||
       process.env.S3_ENDPOINT ||
-      'http://minio:9000';
+      '';
 
     const s3Bucket = process.env.S3_BUCKET_NAME || 'push2prod-builds';
-    const s3AccessKey = process.env.S3_ACCESS_KEY || 'minioadmin';
-    const s3SecretKey = process.env.S3_SECRET_KEY || 'minioadmin';
+    const s3AccessKey = process.env.S3_ACCESS_KEY || process.env.S3_ACCESS_KEY_ID || '';
+    const s3SecretKey = process.env.S3_SECRET_KEY || process.env.S3_SECRET_ACCESS_KEY || '';
+    const s3Region = process.env.S3_REGION || 'us-east-1';
+    const s3ForcePathStyle = process.env.S3_FORCE_PATH_STYLE || 'false';
 
     // Project ke custom env vars bhi build ko pass karne hain
     const deployment = await db.deployment.findUnique({
@@ -204,10 +206,10 @@ export const performCloneAndBuild = async (options: BuildOptions): Promise<boole
       'run',
       '--rm',                                          // Auto-cleanup after exit
       '--name', containerName,                         // Unique naam
-      '--memory', '1.5g',                              // Max 1.5GB RAM
-      '--memory-swap', '1.5g',                         // Swap bhi limit karo
-      '--cpus', '2',                                   // Max 2 CPU cores
-      '--network', 'prod2push-internal',              // Internal network access (MinIO)
+      '--memory', process.env.BUILD_MEMORY_LIMIT || '800m',
+      '--memory-swap', process.env.BUILD_SWAP_LIMIT || '2000m',
+      '--cpus', process.env.BUILD_CPU_LIMIT || '2',
+      '--network', 'prod2push-internal',              // Internal network access
       '--cap-drop', 'ALL',                             // Sabhi Linux capabilities drop karo
       '--security-opt', 'no-new-privileges:true',      // Privilege escalation block karo
       '-e', `DEPLOYMENT_ID=${deploymentId}`,
@@ -219,6 +221,8 @@ export const performCloneAndBuild = async (options: BuildOptions): Promise<boole
       '-e', `DATABASE_URL=${dbUrl}`,
       '-e', `S3_ENDPOINT=${s3Endpoint}`,
       '-e', `S3_BUCKET_NAME=${s3Bucket}`,
+      '-e', `S3_REGION=${s3Region}`,
+      '-e', `S3_FORCE_PATH_STYLE=${s3ForcePathStyle}`,
       '-e', `S3_ACCESS_KEY_ID=${s3AccessKey}`,
       '-e', `S3_SECRET_ACCESS_KEY=${s3SecretKey}`,
       '-e', `CUSTOM_ENV_VARS=${customEnvVars}`,

@@ -14,18 +14,28 @@ app.use(cors());
 // Initialize Redis for cache-aside
 const redisClient = createClient({ url: config.redisUrl });
 redisClient.on('error', (err) => logger.error('Redis Client Error in Routing Service', err));
-redisClient.connect().then(() => logger.info('Connected to Redis for routing cache.'));
+redisClient.connect()
+  .then(() => logger.info('Connected to Redis for routing cache.'))
+  .catch((err) => logger.error('Redis connection failed in Routing Service:', err));
 
-// Initialize S3 Client
-const s3Client = new S3Client({
+// Initialize S3 Client (IAM Role support or static credentials)
+const s3Config: any = {
   region: config.s3.region,
-  endpoint: config.s3.endpoint,
-  credentials: {
+  forcePathStyle: config.s3.forcePathStyle,
+};
+
+if (config.s3.endpoint) {
+  s3Config.endpoint = config.s3.endpoint;
+}
+
+if (config.s3.accessKeyId && config.s3.secretAccessKey) {
+  s3Config.credentials = {
     accessKeyId: config.s3.accessKeyId,
     secretAccessKey: config.s3.secretAccessKey,
-  },
-  forcePathStyle: config.s3.forcePathStyle,
-});
+  };
+}
+
+const s3Client = new S3Client(s3Config);
 
 const BUCKET_NAME = config.s3.bucketName;
 
@@ -136,15 +146,17 @@ function buildS3Key(prefix: string, serveDir: string, filePath: string): string 
  * Core routing middleware
  */
 
-// Handle wildcard subdomains like [slug].localhost:4002
+// Handle wildcard subdomains like [slug].localhost:4002 or [slug].<ip>.nip.io:4002
 app.use((req, res, next) => {
   const host = req.headers.host || '';
-  if (host.includes('.localhost:4002')) {
+  if (host.includes('.localhost') || host.includes('.nip.io')) {
     const slug = host.split('.')[0];
-    if (req.url === '/') {
-      req.url = `/site/${slug}/`;
-    } else {
-      req.url = `/site/${slug}${req.url}`;
+    if (slug && !req.url.startsWith('/site/')) {
+      if (req.url === '/') {
+        req.url = `/site/${slug}/`;
+      } else {
+        req.url = `/site/${slug}${req.url}`;
+      }
     }
   }
   next();

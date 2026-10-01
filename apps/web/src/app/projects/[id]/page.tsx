@@ -162,6 +162,19 @@ function LogsPanel({ deploymentId, userId, onClose }: { deploymentId: string, us
   );
 }
 
+function getLiveUrl(slug: string): string {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    // Local development
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `http://${slug}.localhost:4002/`;
+    }
+    // Remote cloud / EC2 public IP or domain
+    return `http://${hostname}:4002/site/${slug}/`;
+  }
+  return `http://${slug}.localhost:4002/`;
+}
+
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: session } = useSession();
@@ -292,12 +305,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         </div>
         <div className="flex gap-3">
           <a
-            href={`http://${project.slug}.localhost:4002/`}
+            href={getLiveUrl(project.slug)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-lg bg-card-bg border border-border-hairline px-5 py-2.5 text-sm font-medium text-text-ink transition-colors hover:bg-page-bg"
           >
-            Live URL
+            Live URL ↗
           </a>
           <Link
             href={`/projects/${project.id}/settings`}
@@ -372,6 +385,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 </div>
 
                 <div className="flex-shrink-0 flex items-center gap-2">
+                  {deployment.status === 'READY' && (
+                    <a
+                      href={getLiveUrl(project.slug)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-md hover:bg-emerald-500 hover:text-white transition-colors"
+                    >
+                      Visit ↗
+                    </a>
+                  )}
                   {['QUEUED', 'PENDING', 'BUILDING'].includes(deployment.status) && (
                     <button 
                       onClick={() => handleCancelDeployment(deployment.id)}

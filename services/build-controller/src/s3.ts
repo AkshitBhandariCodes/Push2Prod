@@ -6,15 +6,23 @@ import path from 'path';
 import mime from 'mime-types';
 
 // Initialize S3 Client
-const s3Client = new S3Client({
+const s3Config: any = {
   region: config.s3.region,
-  endpoint: config.s3.endpoint,
-  credentials: {
+  forcePathStyle: config.s3.forcePathStyle, // Required for MinIO
+};
+
+if (config.s3.endpoint) {
+  s3Config.endpoint = config.s3.endpoint;
+}
+
+if (config.s3.accessKeyId && config.s3.secretAccessKey) {
+  s3Config.credentials = {
     accessKeyId: config.s3.accessKeyId,
     secretAccessKey: config.s3.secretAccessKey,
-  },
-  forcePathStyle: config.s3.forcePathStyle, // Required for MinIO
-});
+  };
+}
+
+const s3Client = new S3Client(s3Config);
 
 const BUCKET_NAME = config.s3.bucketName;
 

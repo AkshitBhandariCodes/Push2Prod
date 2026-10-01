@@ -17,6 +17,18 @@ services:
       - prod2push-internal
 
   # ============================================================================
+  # RUNNER IMAGE TARGET (Pre-builds prod2push/build-runner:latest on host daemon)
+  # ============================================================================
+  build-runner:
+    build:
+      context: .
+      dockerfile: services/build-runner/Dockerfile
+    container_name: prod2push_build_runner_prebuild
+    image: prod2push/build-runner:latest
+    entrypoint: ["echo", "prod2push/build-runner:latest image ready"]
+    restart: "no"
+
+  # ============================================================================
   # APPLICATION: Next.js Web Dashboard
   # ============================================================================
   web:
@@ -29,6 +41,8 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    environment:
+      REDIS_URL: redis://redis:6379
     depends_on:
       - redis
     restart: unless-stopped
@@ -50,6 +64,7 @@ services:
       - .env
     environment:
       PROJECT_SERVICE_URL: http://project-service:3002
+      REDIS_URL: redis://redis:6379
     depends_on:
       - redis
     restart: unless-stopped
@@ -71,6 +86,7 @@ services:
       - .env
     environment:
       PROJECT_SERVICE_PORT: "3002"
+      REDIS_URL: redis://redis:6379
     depends_on:
       - redis
     restart: unless-stopped
@@ -78,7 +94,7 @@ services:
       - prod2push-internal
 
   # ============================================================================
-  # APPLICATION: Routing Service (Subdomain Proxy for S3)
+  # APPLICATION: Routing Service (Subdomain / Path Proxy for S3)
   # ============================================================================
   routing-service:
     build:
@@ -90,6 +106,8 @@ services:
       - "4002:4002"
     env_file:
       - .env
+    environment:
+      REDIS_URL: redis://redis:6379
     depends_on:
       - redis
     restart: unless-stopped
@@ -110,12 +128,17 @@ services:
     environment:
       BUILD_RUNNER_IMAGE: prod2push/build-runner:latest
       BUILD_MODE: docker
+      REDIS_URL: redis://redis:6379
       BUILD_RUNNER_DB_URL: ${DATABASE_URL}
       BUILD_RUNNER_S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-push2prod-artifacts}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - redis
+      - build-runner
     restart: unless-stopped
     networks:
       - prod2push-internal
