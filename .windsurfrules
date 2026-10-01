@@ -1,0 +1,4 @@
+# Windsurf Rules: Vercel-Pro
+
+## /journey Skill
+When the user types `/journey` or asks to log development progress, execute the procedures detailed in `.agents/skills/journey/SKILL.md`. Document what was built, challenges faced, mitigation strategies, Mermaid architecture diagrams, and map changes to GitHub commits in `docs/journey/`.

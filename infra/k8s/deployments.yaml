@@ -1,0 +1,269 @@
+################################################################################
+# Kubernetes Deployment â€” Build Controller
+#
+# YE KYA KARTA HAI:
+#   Build-controller ka K8s Deployment â€” Redis stream consume karke
+#   build-runner Jobs create karta hai K8s API se.
+#
+# APPLY:
+#   kubectl apply -f infra/k8s/build-controller-deployment.yaml
+#
+# VERIFY:
+#   kubectl get pods -n push2prod -l app=build-controller
+#   kubectl logs deployment/build-controller -n push2prod
+################################################################################
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: build-controller
+  namespace: push2prod
+  labels:
+    app: build-controller
+    tier: worker
+    app.kubernetes.io/part-of: push2prod
+spec:
+  # Sirf 1 replica â€” ek hi controller chahiye (multiple hone pe duplicate jobs ban sakte hain)
+  # Horizontal scaling ke liye leader election implement karna padega (future phase)
+  replicas: 1
+  selector:
+    matchLabels:
+      app: build-controller
+  template:
+    metadata:
+      labels:
+        app: build-controller
+        tier: worker
+    spec:
+      # RBAC: Sirf build-controller-sa ke permissions (Jobs create kar sakta hai)
+      serviceAccountName: build-controller-sa
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      
+      containers:
+        - name: build-controller
+          image: push2prod/build-controller:latest
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+          
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: REDIS_URL
+            # Build controller K8s mode mein hoga â€” seedha K8s Jobs create karega
+            - name: BUILD_MODE
+              value: "kubernetes"
+            # Build-runner ka image naam
+            - name: BUILD_RUNNER_IMAGE
+              value: "push2prod/build-runner:latest"
+
+---
+################################################################################
+# Kubernetes Deployment â€” Project Service
+################################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: project-service
+  namespace: push2prod
+  labels:
+    app: project-service
+    tier: application
+    app.kubernetes.io/part-of: push2prod
+spec:
+  replicas: 2   # 2 replicas â€” high availability
+  selector:
+    matchLabels:
+      app: project-service
+  template:
+    metadata:
+      labels:
+        app: project-service
+        tier: application
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: project-service
+          image: push2prod/project-service:latest
+          ports:
+            - containerPort: 3002
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PROJECT_SERVICE_PORT
+              value: "3002"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: REDIS_URL
+          # Health checks â€” K8s pod restart karega agar health check fail ho
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+# Service: project-service pods ko internal DNS se accessible karo
+apiVersion: v1
+kind: Service
+metadata:
+  name: project-service
+  namespace: push2prod
+spec:
+  selector:
+    app: project-service
+  ports:
+    - protocol: TCP
+      port: 3002
+      targetPort: 3002
+  type: ClusterIP   # Sirf internal access â€” external nahi
+
+---
+################################################################################
+# Kubernetes Deployment â€” Routing Service
+################################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: routing-service
+  namespace: push2prod
+  labels:
+    app: routing-service
+    tier: application
+    app.kubernetes.io/part-of: push2prod
+spec:
+  replicas: 2   # 2 replicas for HA
+  selector:
+    matchLabels:
+      app: routing-service
+  template:
+    metadata:
+      labels:
+        app: routing-service
+        tier: application
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: routing-service
+          image: push2prod/routing-service:latest
+          ports:
+            - containerPort: 4002
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: REDIS_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: S3_BUCKET_NAME
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: push2prod-secrets
+                  key: S3_SECRET_ACCESS_KEY
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4002
+            initialDelaySeconds: 15
+            periodSeconds: 30
+
+---
+# Service: routing-service
+apiVersion: v1
+kind: Service
+metadata:
+  name: routing-service
+  namespace: push2prod
+spec:
+  selector:
+    app: routing-service
+  ports:
+    - protocol: TCP
+      port: 4002
+      targetPort: 4002
+  # LoadBalancer â€” external access allow karo (cloud pe ELB/NLB ban jaayegi)
+  type: LoadBalancer

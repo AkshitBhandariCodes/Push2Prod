@@ -1,0 +1,178 @@
+################################################################################
+# Kubernetes Job Template — Build Runner
+#
+# YE KYA HAI:
+#   Ye ek "reference template" hai jo build-controller use karta hai
+#   har naye deployment ke liye ek K8s Job create karne ke liye.
+#
+#   NOTE: Ye file directly apply nahi hoti. Build-controller runtime pe
+#   is template ko populate karke K8s API se Job create karta hai.
+#   (Ya aap manually testing ke liye apply kar sakte ho)
+#
+# KUBERNETES JOB vs POD:
+#   Pod: Long-running service (restart hoti hai agar crash ho)
+#   Job: One-time task (complete hone ke baad khud band ho jata hai)
+#        Perfect for build tasks! → Ephemeral by design
+#
+# APPLY (manual testing ke liye):
+#   # Pehle env vars replace karo, phir apply karo
+#   kubectl apply -f infra/k8s/build-runner-job-template.yaml
+#
+# VERIFY:
+#   kubectl get jobs -n deployit
+#   kubectl describe job build-runner-<deployment-id> -n deployit
+#   kubectl get jobs -n push2prod
+#   kubectl describe job build-runner-<deployment-id> -n push2prod
+#   kubectl logs job/build-runner-<deployment-id> -n push2prod
+################################################################################
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Naam runtime pe set hoga: build-runner-<deployment-id>
+  name: build-runner-DEPLOYMENT_ID_PLACEHOLDER
+  namespace: push2prod
+  labels:
+    app: build-runner
+    app.kubernetes.io/component: build-runner
+    app.kubernetes.io/part-of: vercel-pro
+    # Deployment tracking ke liye label (kubectl get jobs -l deployment-id=xxx se filter ho sakta)
+    vercel-pro/deployment-id: DEPLOYMENT_ID_PLACEHOLDER
+spec:
+  # ============================================================================
+  # JOB SETTINGS
+  # ============================================================================
+  
+  # Ek baar fail ho toh retry — 0 matlab no retry (fail fast)
+  # Build fail hua matlab code ya config mein problem hai, retry se fix nahi hoga
+  backoffLimit: 0
+  
+  # Job complete hone ke 1 hour baad automatically delete ho jayega
+  # (Cleanup — logs DB mein hain, job object K8s mein rakhna zaruri nahi)
+  ttlSecondsAfterFinished: 3600  # 1 hour
+  
+  # Build timeout — 15 minutes se zyada nahi chalega
+  activeDeadlineSeconds: 900  # 15 minutes
+  
+  template:
+    metadata:
+      labels:
+        app: build-runner
+        vercel-pro/deployment-id: DEPLOYMENT_ID_PLACEHOLDER
+    spec:
+      # ========================================================================
+      # SERVICE ACCOUNT: build-runner-sa (zero K8s API access)
+      # ========================================================================
+      serviceAccountName: build-runner-sa
+      
+      # Job complete hone ke baad restart mat karo
+      restartPolicy: Never
+      
+      # ========================================================================
+      # SECURITY CONTEXT (Pod level)
+      # ========================================================================
+      securityContext:
+        # Pod ke sab containers root se nahi chalenge
+        runAsNonRoot: true
+        # builduser ka UID (Dockerfile mein 1001 set kiya tha)
+        runAsUser: 1001
+        runAsGroup: 1001
+        # Filesystem group
+        fsGroup: 1001
+
+      containers:
+        - name: build-runner
+          image: vercel-pro/build-runner:latest
+          # imagePullPolicy: Never  → Minikube pe locally loaded image use karo
+          # 'minikube image load vercel-pro/build-runner' se image load hoti hai
+          # Production mein 'IfNotPresent' ya 'Always' use karo
+          imagePullPolicy: Never
+          
+          # ====================================================================
+          # SECURITY CONTEXT (Container level)
+          # ====================================================================
+          securityContext:
+            # Privilege escalation bilkul nahi (sudo, setuid, etc. blocked)
+            allowPrivilegeEscalation: false
+            # Sabhi Linux capabilities drop karo
+            # (Network sniffing, raw sockets, etc. sab blocked)
+            capabilities:
+              drop:
+                - ALL
+            # Read-only root filesystem — container apne filesystem pe write nahi kar sakta
+            # Exception: /tmp mount karenge build workspace ke liye
+            readOnlyRootFilesystem: false   # false rakhna padega (pnpm install writes to disk)
+          
+          # ====================================================================
+          # RESOURCE LIMITS (OOM aur CPU DoS prevention)
+          # ====================================================================
+          resources:
+            limits:
+              memory: "1.5Gi"    # Max 1.5 GB RAM — OOM hone pe container kill hoga
+              cpu: "2000m"        # Max 2 CPU cores (2000 millicores)
+            requests:
+              memory: "256Mi"    # K8s scheduler ko batao kitna minimum chahiye
+              cpu: "500m"         # 0.5 CPU core minimum
+          
+          # ====================================================================
+          # ENVIRONMENT VARIABLES
+          # Build-runner ko sab zaruri info env vars se milegi
+          # ====================================================================
+          env:
+            # Build job ke parameters (build-controller runtime pe set karega)
+            - name: DEPLOYMENT_ID
+              value: "DEPLOYMENT_ID_PLACEHOLDER"
+            - name: REPO_URL
+              value: "REPO_URL_PLACEHOLDER"
+            - name: BRANCH
+              value: "BRANCH_PLACEHOLDER"
+            - name: BUILD_CMD
+              value: "BUILD_CMD_PLACEHOLDER"
+            - name: OUTPUT_DIR
+              value: "OUTPUT_DIR_PLACEHOLDER"
+            - name: ROOT_DIR
+              value: "ROOT_DIR_PLACEHOLDER"
+            
+            # DB aur S3 credentials Secret se aate hain (secure!)
+            # (K8s Secret is namespace mein create karna padega — not committed to git)
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vercel-pro-secrets
+                  key: DATABASE_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: vercel-pro-secrets
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: vercel-pro-secrets
+                  key: S3_BUCKET_NAME
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: vercel-pro-secrets
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vercel-pro-secrets
+                  key: S3_SECRET_ACCESS_KEY
+          
+          # ====================================================================
+          # VOLUME MOUNTS
+          # Build workspace ke liye /tmp mein emptyDir volume mount karo
+          # Ye ephemeral hai — pod delete hone pe automatically delete hoga
+          # ====================================================================
+          volumeMounts:
+            - name: build-workspace
+              mountPath: /tmp/workspace   # Build workspace yahan hoga
+      
+      volumes:
+        # emptyDir: Pod lifetime ke liye temporary storage
+        # Container ke readOnlyRootFilesystem ke saath bhi write allowed hai yahan
+        - name: build-workspace
+          emptyDir:
+            sizeLimit: "5Gi"    # Max 5GB build workspace

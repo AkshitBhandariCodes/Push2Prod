@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Push2Prod Platform - AWS Infrastructure Composer Architecture
+  Template Includes EC2 Microservices Host, S3 Artifact Storage, RDS PostgreSQL,
+  Security Groups, and IAM Roles.
+
+Metadata:
+  AWS::Composer::Canvas:
+    Visual:
+      Push2ProdArtifactsBucket:
+        x: 650
+        'y': 120
+      Push2ProdEC2Instance:
+        x: 350
+        'y': 280
+      Push2ProdRDSInstance:
+        x: 650
+        'y': 450
+      EC2SecurityGroup:
+        x: 80
+        'y': 280
+      RDSSecurityGroup:
+        x: 650
+        'y': 620
+      EC2IAMRole:
+        x: 350
+        'y': 120
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: push2prod-dev
+    Description: Environment identifier tag for resources
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select an existing EC2 KeyPair to enable SSH access
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+    Description: Automatically resolves the latest official Ubuntu 24.04 LTS AMI
+
+  DBMasterUsername:
+    Type: String
+    Default: postgres
+    Description: Master username for AWS RDS PostgreSQL
+
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    Default: Push2Prod2026Pass
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: ^[a-zA-Z0-9!#\$%&*+\-_=~]*$
+    ConstraintDescription: Must be 8-41 characters and cannot contain '/', '@', '"', or space.
+    Description: Master password for AWS RDS PostgreSQL (cannot contain '@', '/',
+      '"', or space)
+
+  EC2InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t2.micro
+      - t3.small
+      - t3.medium
+    Description: Free Tier eligible EC2 instance type (t3.micro or t2.micro)
+
+Resources:
+  # ============================================================================
+  # 1. AWS S3 BUCKET (Artifact Storage)
+  # ============================================================================
+  Push2ProdArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-artifacts-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - HEAD
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3600
+      Tags:
+        - Key: Project
+          Value: Push2Prod
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ============================================================================
+  # 2. IAM ROLE & INSTANCE PROFILE (Zero-Key S3 Access for EC2)
+  # ============================================================================
+  EC2IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: S3ArtifactAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt Push2ProdArtifactsBucket.Arn
+                  - !Sub ${Push2ProdArtifactsBucket.Arn}/*
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref EC2IAMRole
+
+  # ============================================================================
+  # 3. SECURITY GROUPS (Virtual Firewalls)
+  # ============================================================================
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and HTTP access to Push2Prod services
+      SecurityGroupIngress:
+        # SSH access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        # Web UI (Next.js Dashboard)
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+        # API Gateway (BFF Proxy)
+        - IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          CidrIp: 0.0.0.0/0
+        # Routing Service (Subdomain Proxy)
+        - IpProtocol: tcp
+          FromPort: 4002
+          ToPort: 4002
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ec2-sg
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL connections from EC2 instance
+      SecurityGroupIngress:
+        # Allow connections on port 5432 originating from the EC2 security group
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !GetAtt EC2SecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-rds-sg
+
+  # ============================================================================
+  # 4. AWS RDS POSTGRESQL DATABASE
+  # ============================================================================
+  Push2ProdRDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      DBName: prod2push
+      DBInstanceIdentifier: !Sub ${EnvironmentName}-postgres
+      AllocatedStorage: '20'
+      DBInstanceClass: db.t4g.micro
+      Engine: postgres
+      EngineVersion: '16.3'
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      VPCSecurityGroups:
+        - !GetAtt RDSSecurityGroup.GroupId
+      PubliclyAccessible: false
+      MultiAZ: false
+      AutoMinorVersionUpgrade: true
+      StorageType: gp3
+      BackupRetentionPeriod: 1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-postgres
+
+  # ============================================================================
+  # 5. AWS EC2 INSTANCE (Microservices Host)
+  # ============================================================================
+  Push2ProdEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref EC2InstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      ImageId: !Ref LatestAmiId
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+      UserData: !Base64
+        Fn::Sub: |
+          #!/bin/bash
+          # 1. Allocate 4GB Swap to handle build memory on Free Tier t3.micro
+          fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+          # 2. Update and install Docker
+          apt-get update -y
+          apt-get install -y curl git apt-transport-https ca-certificates software-properties-common
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sh get-docker.sh
+          usermod -aG docker ubuntu
+          systemctl enable docker
+          systemctl start docker
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-server
+
+Outputs:
+  S3BucketName:
+    Description: Name of the S3 Artifacts Bucket
+    Value: !Ref Push2ProdArtifactsBucket
+
+  EC2PublicIP:
+    Description: Public IP of Push2Prod EC2 Instance
+    Value: !GetAtt Push2ProdEC2Instance.PublicIp
+
+  WebDashboardURL:
+    Description: URL to access the Next.js Dashboard
+    Value: !Sub http://${Push2ProdEC2Instance.PublicIp}:3000
+
+  RDSEndpoint:
+    Description: RDS PostgreSQL Connection Endpoint
+    Value: !GetAtt Push2ProdRDSInstance.Endpoint.Address

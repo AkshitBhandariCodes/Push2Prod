@@ -1,0 +1,25 @@
+################################################################################
+# Kubernetes Namespace â€” push2prod
+#
+# YE KYA HAI:
+#   Namespace ek virtual cluster hai real cluster ke andar.
+#   Push2Prod ke sab resources is namespace mein rahenge.
+#   Ye isolation provide karta hai â€” alag projects ke pods ek dusre ko nahi dekhte.
+#
+# APPLY COMMAND:
+#   kubectl apply -f infra/k8s/namespace.yaml
+#
+# VERIFY:
+#   kubectl get namespace push2prod
+################################################################################
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: push2prod
+  labels:
+    # Label lagao taaki NetworkPolicy aur RBAC correctly apply ho sake
+    app.kubernetes.io/name: push2prod
+    app.kubernetes.io/managed-by: kubectl
+    # Environment label â€” monitoring aur alerting ke liye useful
+    environment: production

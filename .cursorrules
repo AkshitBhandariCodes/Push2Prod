@@ -1,0 +1,13 @@
+# Cursor Rules: Vercel-Pro
+
+## /journey & Dev Logging
+When the user types `/journey`, `/devlog`, or asks to document their journey:
+- Follow the instructions in `.agents/skills/journey/SKILL.md`.
+- Extract git commit hash, branch, and GitHub URL using `.agents/skills/journey/scripts/gather-git-context.ps1`.
+- Document:
+  1. What was built & accomplished.
+  2. Twists & turns (challenges faced & errors).
+  3. Mitigation strategy (what failed first & the winning fix).
+  4. Architecture & Mermaid flow diagram.
+  5. GitHub commit mapping.
+- Save to `docs/journey/` and ADRs to `docs/adr/`.

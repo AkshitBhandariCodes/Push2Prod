@@ -1,0 +1,225 @@
+################################################################################
+# NetworkPolicy â€” Zero-Trust Pod Firewall
+#
+# YE KYA HAI:
+#   NetworkPolicy Kubernetes ka built-in firewall hai pods ke level pe.
+#   By default, K8s mein sab pods ek dusre se baat kar sakte hain (open network).
+#   NetworkPolicy ye band karta hai aur explicitly sirf zaruri connections allow karta hai.
+#
+# SECURITY MODEL (Defense in Depth):
+#
+#   TIER 1 â€” Default Deny All:
+#     Pehle poore namespace mein sab ingress/egress band karo.
+#     Phir specifically sirf zaruri connections allow karo.
+#
+#   TIER 2 â€” Build-Runner Zero Trust:
+#     Build-runner pod ke paas sirf 2 egress connections allowed hain:
+#       1. GitHub.com (port 443) â€” git clone ke liye
+#       2. MinIO service (port 9000) â€” artifact upload ke liye
+#     SARE internal services blocked hain!
+#     â†’ SSRF (Server-Side Request Forgery) attacks blocked
+#     â†’ Lateral movement attacks blocked
+#     â†’ Kubernetes API access blocked
+#
+#   TIER 3 â€” Application Pods:
+#     Regular services (project-service, api-gateway, etc.) normal communication
+#     kar sakte hain but sirf defined ports pe.
+#
+# APPLY COMMAND:
+#   kubectl apply -f infra/k8s/networkpolicy.yaml
+#
+# VERIFY (Test mein busybox pod se wget run karo):
+#   See dev-docs/phase-14-docker-guide.md â€” Test 6: NetworkPolicy Zero-Trust Test
+################################################################################
+
+---
+# ============================================================================
+# POLICY 1: Default Deny All (Baseline)
+# Pehle poori namespace mein sab traffic band karo
+# Phir specific policies se specific connections open karo
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: push2prod
+  annotations:
+    push2prod/purpose: "Baseline zero-trust: deny all ingress and egress by default"
+spec:
+  # Ye policy push2prod namespace ke sab pods pe apply hogi
+  podSelector: {}  # Empty = sab pods
+  policyTypes:
+    - Ingress   # Incoming traffic
+    - Egress    # Outgoing traffic
+  # Rules bilkul nahi likhe â€” matlab sab blocked!
+  # ingress: []  â€” implied empty
+  # egress: []   â€” implied empty
+
+---
+# ============================================================================
+# POLICY 2: DNS Allow (Sabhi pods ke liye)
+# DNS resolution ke bina koi bhi hostname resolve nahi ho sakta
+# kube-dns/coredns port 53 pe chal raha hota hai
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: push2prod
+  annotations:
+    push2prod/purpose: "Allow DNS resolution for all pods â€” required for any hostname to work"
+spec:
+  podSelector: {}  # Sab pods ko DNS chahiye
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53   # DNS UDP
+        - protocol: TCP
+          port: 53   # DNS TCP (fallback)
+
+---
+# ============================================================================
+# POLICY 3: Build-Runner â€” Sirf GitHub + MinIO Egress Allowed
+#
+# YE SABSE IMPORTANT SECURITY POLICY HAI!
+# Build-runner pod ke paas untrusted code chal raha hai.
+# Isliye usko sirf zaruri external services tak access milegi.
+#
+# Allowed:
+#   - github.com, raw.githubusercontent.com (port 443) â€” git clone
+#   - minio-service:9000 â€” artifact upload
+#
+# Blocked:
+#   - postgres, redis â€” internal DB access blocked!
+#   - project-service, api-gateway â€” internal API access blocked!
+#   - K8s API server â€” cluster itself blocked!
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: build-runner-network-policy
+  namespace: push2prod
+  annotations:
+    push2prod/purpose: "Zero-trust network isolation for untrusted build pods"
+    push2prod/security-level: "HIGH â€” untrusted code runs inside these pods"
+spec:
+  # Sirf build-runner pods pe apply karo (label se identify)
+  podSelector:
+    matchLabels:
+      app: build-runner
+  policyTypes:
+    - Ingress  # Koi bhi incoming traffic allow nahi
+    - Egress   # Sirf specific outgoing traffic allow hai
+  
+  # INGRESS: Koi bhi build-runner pod ko contact nahi kar sakta
+  ingress: []  # Completely sealed â€” no incoming connections
+  
+  egress:
+    # ------------------------------------------------------------------
+    # EGRESS 1: GitHub (HTTPS port 443)
+    # Git clone ke liye zaruri hai
+    # Note: IP ranges hardcode karna practical nahi â€” GitHub IP ranges change hoti hain
+    # Production mein egress gateway ya DNS policy use karo
+    # ------------------------------------------------------------------
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0        # Sab external IPs allow (GitHub, etc.)
+            except:
+              - 10.0.0.0/8         # Internal pod network block (lateral movement blocked!)
+              - 172.16.0.0/12      # Docker bridge networks blocked
+              - 192.168.0.0/16     # Private network blocked
+      ports:
+        - protocol: TCP
+          port: 443     # HTTPS â€” git clone
+        - protocol: TCP
+          port: 80      # HTTP â€” fallback (some mirrors)
+
+    # ------------------------------------------------------------------
+    # EGRESS 2: MinIO Service (internal namespace, port 9000)
+    # Artifact upload ke liye zaruri hai
+    # Sirf minio-service ko allow karo â€” other services nahi
+    # ------------------------------------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio   # Sirf minio pod ko allow karo
+      ports:
+        - protocol: TCP
+          port: 9000   # MinIO S3 API port
+
+---
+# ============================================================================
+# POLICY 4: Application Services â€” Internal Communication Allowed
+# Regular services (project-service, api-gateway, routing-service) ek dusre se baat kar sakein
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-services-allow-internal
+  namespace: push2prod
+  annotations:
+    push2prod/purpose: "Allow inter-service communication for application tier"
+spec:
+  # Build-runner NAHI â€” sirf app services (label se differentiate)
+  podSelector:
+    matchLabels:
+      tier: application   # api-gateway, project-service, routing-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Sirf same namespace ke pods se incoming traffic allow karo
+    - from:
+        - podSelector: {}   # Koi bhi pod is namespace mein
+  egress:
+    # Sab outgoing traffic allow (postgres, redis, minio, external APIs)
+    - {}   # Open egress for application tier
+
+---
+# ============================================================================
+# POLICY 5: Build-Controller â€” Redis + DB + Docker API Access
+# Build-controller Redis stream consume karta hai aur DB update karta hai
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: build-controller-network-policy
+  namespace: push2prod
+  annotations:
+    push2prod/purpose: "Allow build-controller to access Redis, DB, and spawn K8s Jobs"
+spec:
+  podSelector:
+    matchLabels:
+      app: build-controller
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []   # Build-controller kisi se baat nahi karta (sirf Redis/DB pe jaata hai)
+  egress:
+    # Redis Stream access (build events consume karne ke liye)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # PostgreSQL DB access (deployment status update karne ke liye)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Kubernetes API Server (Jobs create karne ke liye â€” RBAC se restricted)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443     # K8s API server HTTPS
+        - protocol: TCP
+          port: 6443    # K8s API server alternate port

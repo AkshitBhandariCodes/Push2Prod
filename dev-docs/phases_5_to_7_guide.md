@@ -1,6 +1,6 @@
-# Phase 5, 6, and 7: Build Controller & Worker Reliability
+﻿# Phase 5, 6, and 7: Build Controller & Worker Reliability
 
-This document outlines the implementation details for the `build-controller` service which handles background build processing, GitHub cloning, and real build execution for Vercel-Pro.
+This document outlines the implementation details for the `build-controller` service which handles background build processing, GitHub cloning, and real build execution for Push2Prod.
 
 ## Overview
 We introduced a new backend microservice called `build-controller`. This service acts as a background worker that consumes build events from a Redis Stream (`build-events`) and processes deployments asynchronously.
@@ -14,7 +14,7 @@ We introduced a new backend microservice called `build-controller`. This service
 - **Max Retries**: The `attemptCount` field in the `Deployment` model tracks retries. If a deployment fails more than 3 times, its status is updated to `ERROR` (Dead Letter state).
 
 ### 2. Real GitHub Clone (Phase 6)
-- **Temporary Workspace**: For every deployment, the worker creates a temporary workspace at `/tmp/vercel-pro-builds/{deploymentId}`.
+- **Temporary Workspace**: For every deployment, the worker creates a temporary workspace at `/tmp/push2prod-builds/{deploymentId}`.
 - **simple-git**: The worker uses `simple-git` to clone the target repository and checkout the specific branch.
 - **Validation**: Ensures the configured `rootDir` exists inside the repository before proceeding.
 
@@ -29,7 +29,7 @@ The worker is part of the Turborepo workspace. When you run `pnpm dev` from the 
 
 To run it individually:
 ```bash
-pnpm --filter @vercel-pro/build-controller dev
+pnpm --filter @push2prod/build-controller dev
 ```
 
 ## Database Schema Additions

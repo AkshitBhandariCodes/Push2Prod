@@ -1,8 +1,8 @@
-# Vercel-Pro: Phases 1 to 3 Summary & Testing Guide
+﻿# Push2Prod: Phases 1 to 3 Summary & Testing Guide
 
 Bhai, abhi tak humne foundation, API, aur frontend ka major hissa complete kar liya hai. Yahan detail hai ki kya kya hua hai aur tu khud isko locally kaise test kar sakta hai.
 
-## 🚀 Humne Ab Tak Kya Kiya Hai (Phases 1 to 3)
+## ðŸš€ Humne Ab Tak Kya Kiya Hai (Phases 1 to 3)
 
 1. **Monorepo Setup (Phase 1)**
    - `pnpm` workspace setup kiya jisme `apps` (frontend), `packages` (shared code), aur `services` (backend APIs) hain.
@@ -22,16 +22,16 @@ Bhai, abhi tak humne foundation, API, aur frontend ka major hissa complete kar l
 
 ---
 
-## 🛠️ Step-by-Step Guide: Khud Kaise Test Karein
+## ðŸ› ï¸ Step-by-Step Guide: Khud Kaise Test Karein
 
 ### 1. Database Dekhna (via Prisma Studio)
 Prisma ek built-in web UI deta hai jahan tum seedha database ke tables dekh aur edit kar sakte ho.
 
 **Steps:**
 1. Ek naya terminal kholo.
-2. Root directory (`D:\Projects\Vercel-Pro`) mein ye command chalao:
+2. Root directory (`D:\Projects\Push2Prod`) mein ye command chalao:
    ```bash
-   pnpm --filter @vercel-pro/db prisma:studio
+   pnpm --filter @push2prod/db prisma:studio
    ```
 3. Ye command ek web browser open karegi (usually `http://localhost:5555`).
 4. Wahan tumhe saare models dikhenge. **Project** aur **Deployment** models par click karke dekho ki tumhare banaye gaye projects aur unki queued deployments wahan save ho rahi hain ya nahi.
