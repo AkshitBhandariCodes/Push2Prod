@@ -19,6 +19,43 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      if (account && account.access_token) {
+        try {
+          await db.account.upsert({
+            where: {
+              provider_providerAccountId: {
+                provider: account.provider,
+                providerAccountId: account.providerAccountId,
+              },
+            },
+            update: {
+              access_token: account.access_token,
+              expires_at: account.expires_at,
+              refresh_token: account.refresh_token,
+              scope: account.scope,
+              id_token: account.id_token,
+              token_type: account.token_type,
+            },
+            create: {
+              userId: user.id!,
+              type: account.type,
+              provider: account.provider,
+              providerAccountId: account.providerAccountId,
+              access_token: account.access_token,
+              expires_at: account.expires_at,
+              refresh_token: account.refresh_token,
+              scope: account.scope,
+              id_token: account.id_token,
+              token_type: account.token_type,
+            },
+          });
+        } catch (e) {
+          console.error("Failed to sync account tokens on signIn:", e);
+        }
+      }
+      return true;
+    },
     session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
