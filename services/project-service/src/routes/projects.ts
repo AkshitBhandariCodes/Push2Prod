@@ -3,50 +3,8 @@ import { db } from '@push2prod/db';
 import { logger } from '@push2prod/logger';
 import { CreateProjectInputSchema } from '@push2prod/contracts';
 import { ZodError } from 'zod';
-import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
-import { config } from '@push2prod/config';
+import { emptyS3Directory, BUCKET_NAME } from '../s3';
 
-// Initialize S3 Client for deleting artifacts (IAM Role support or static credentials)
-const s3Config: any = {
-  region: config.s3.region,
-  forcePathStyle: config.s3.forcePathStyle, // Required for MinIO
-};
-
-if (config.s3.endpoint) {
-  s3Config.endpoint = config.s3.endpoint;
-}
-
-if (config.s3.accessKeyId && config.s3.secretAccessKey) {
-  s3Config.credentials = {
-    accessKeyId: config.s3.accessKeyId,
-    secretAccessKey: config.s3.secretAccessKey,
-  };
-}
-
-const s3Client = new S3Client(s3Config);
-const BUCKET_NAME = config.s3.bucketName;
-
-async function emptyS3Directory(bucket: string, dir: string) {
-  const listParams = { Bucket: bucket, Prefix: dir, ContinuationToken: undefined as string | undefined };
-  let listedObjects;
-  do {
-    listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
-
-    if (listedObjects.Contents && listedObjects.Contents.length > 0) {
-      const deleteParams = {
-        Bucket: bucket,
-        Delete: { Objects: [] as any[] }
-      };
-
-      listedObjects.Contents.forEach(({ Key }) => {
-        deleteParams.Delete.Objects.push({ Key });
-      });
-
-      await s3Client.send(new DeleteObjectsCommand(deleteParams));
-    }
-    listParams.ContinuationToken = listedObjects.NextContinuationToken;
-  } while (listedObjects.IsTruncated);
-}
 
 // Projects router â€” project CRUD ke saare endpoints yahan hain
 const router = Router();
@@ -236,7 +194,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
     // But Prisma's delete doesn't support multiple where clauses if they are not a unique index together.
     // Wait, id is the primary key. We should first verify ownership, or use deleteMany.
     const project = await db.project.findUnique({
-      where: { id }
+      where: { id },
+      include: { deployments: true }
     });
 
     if (!project) {
@@ -249,14 +208,23 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    // Collect all S3 artifact prefixes to delete before deleting DB records
+    const prefixesToDelete = project.deployments
+      .map((d) => d.artifactPrefix || `deployments/${d.id}`)
+      .filter(Boolean) as string[];
+
     await db.project.delete({
       where: { id }
     });
 
-    // Cleanup S3 artifacts for this project
+    // Cleanup S3 artifacts for all deployments of this project
     try {
+      for (const prefix of prefixesToDelete) {
+        await emptyS3Directory(BUCKET_NAME, prefix);
+      }
+      // Also clean any legacy projects/<id> directory if it existed
       await emptyS3Directory(BUCKET_NAME, `projects/${id}/`);
-      logger.info(`S3 artifacts for project ${id} deleted successfully.`);
+      logger.info(`S3 artifacts for project ${id} and ${prefixesToDelete.length} deployment(s) deleted successfully.`);
     } catch (s3Error) {
       logger.error(`Failed to delete S3 artifacts for project ${id}:`, s3Error);
       // We don't fail the response since DB deletion succeeded.
