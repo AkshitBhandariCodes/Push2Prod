@@ -30,6 +30,7 @@ export async function GET() {
       headers: {
         Authorization: `Bearer ${account.access_token}`,
         Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'Push2Prod-App',
       }
     });
 
