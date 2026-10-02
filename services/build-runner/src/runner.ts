@@ -349,7 +349,8 @@ const main = async () => {
         });
         await logEvent(`pnpm install completed.`);
       } catch (installErr: any) {
-        const errMsg = installErr.stderr || installErr.stdout || installErr.message;
+        const fullOutput = [installErr.stdout, installErr.stderr].filter(Boolean).join('\n').trim();
+        const errMsg = fullOutput || installErr.message;
         throw new Error(`pnpm install failed:\n${errMsg}`);
       }
 
@@ -381,7 +382,8 @@ const main = async () => {
         });
         await logEvent(`Build command completed successfully.`);
       } catch (buildErr: any) {
-        const errMsg = buildErr.stderr || buildErr.stdout || buildErr.message;
+        const fullOutput = [buildErr.stdout, buildErr.stderr].filter(Boolean).join('\n').trim();
+        const errMsg = fullOutput || buildErr.message;
         throw new Error(`Build command failed:\n${errMsg}`);
       }
     } else {
