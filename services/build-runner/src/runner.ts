@@ -383,7 +383,10 @@ const main = async () => {
         await logEvent(`Build command completed successfully.`);
       } catch (buildErr: any) {
         const fullOutput = [buildErr.stdout, buildErr.stderr].filter(Boolean).join('\n').trim();
-        const errMsg = fullOutput || buildErr.message;
+        let errMsg = fullOutput || buildErr.message;
+        if (buildErr.signal === 'SIGKILL' || buildErr.code === 137 || buildErr.killed) {
+          errMsg += '\n[ERROR] Build was terminated by Linux Out of Memory (OOM) Killer (Exit code 137 / SIGKILL). The build required more RAM than allowed.';
+        }
         throw new Error(`Build command failed:\n${errMsg}`);
       }
     } else {

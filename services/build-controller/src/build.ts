@@ -206,8 +206,8 @@ export const performCloneAndBuild = async (options: BuildOptions): Promise<boole
       'run',
       '--rm',                                          // Auto-cleanup after exit
       '--name', containerName,                         // Unique naam
-      '--memory', process.env.BUILD_MEMORY_LIMIT || '800m',
-      '--memory-swap', process.env.BUILD_SWAP_LIMIT || '2000m',
+      '--memory', process.env.BUILD_MEMORY_LIMIT || '1800m',
+      '--memory-swap', process.env.BUILD_SWAP_LIMIT || '3500m',
       '--cpus', process.env.BUILD_CPU_LIMIT || '2',
       '--network', 'prod2push-internal',              // Internal network access
       '--cap-drop', 'ALL',                             // Sabhi Linux capabilities drop karo

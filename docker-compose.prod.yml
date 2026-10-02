@@ -139,6 +139,8 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-push2prod-artifacts}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      BUILD_MEMORY_LIMIT: ${BUILD_MEMORY_LIMIT:-1800m}
+      BUILD_SWAP_LIMIT: ${BUILD_SWAP_LIMIT:-3500m}
       NODE_OPTIONS: "--max-old-space-size=120"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
