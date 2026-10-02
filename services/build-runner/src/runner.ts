@@ -371,6 +371,7 @@ const main = async () => {
         CI: 'true',
         NODE_ENV: 'production',
         NEXT_TELEMETRY_DISABLED: '1',
+        NODE_OPTIONS: '--max-old-space-size=1536',
         PATH: updatedPath,
         COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', 
       };
