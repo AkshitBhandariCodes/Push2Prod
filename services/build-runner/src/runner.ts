@@ -368,6 +368,9 @@ const main = async () => {
 
       const buildEnv = { 
         ...process.env, 
+        CI: 'true',
+        NODE_ENV: 'production',
+        NEXT_TELEMETRY_DISABLED: '1',
         PATH: updatedPath,
         COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', 
       };

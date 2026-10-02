@@ -16,8 +16,9 @@
 
 # ==============================================================================
 # BASE STAGE: Shared setup to avoid redundant npm installs
+# Node 20 LTS — matches Vercel production build environment
 # ==============================================================================
-FROM node:22-alpine AS base
+FROM node:20-alpine AS base
 WORKDIR /app
 # Install OpenSSL for Prisma engine compatibility on Alpine Linux
 RUN apk add --no-cache openssl
