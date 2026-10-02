@@ -134,33 +134,51 @@ async function resolveSlugToServeRoot(slug: string): Promise<{ prefix: string; s
 
 /**
  * Generates candidate S3 keys for a file request.
- * Handles framework differences (Next.js .next/static vs /_next/static, Vite dist, SPA routes).
+ * Handles framework differences (Next.js .next/static vs /_next/static, Vite dist, SPA routes, .html pages).
  */
 function getCandidateS3Keys(prefix: string, serveDir: string, filePath: string): string[] {
-  const clean = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+  let clean = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+  if (clean.endsWith('/')) clean = clean.substring(0, clean.length - 1);
   const candidates: string[] = [];
 
-  // 1. If serveDir is set (e.g. server/app), check there first
-  if (serveDir) {
-    candidates.push(`${prefix}/${serveDir}/${clean}`.replace(/\/+/g, '/'));
-  }
-
-  // 2. Direct path at prefix root (e.g. deployments/<id>/static/css/...)
-  candidates.push(`${prefix}/${clean}`.replace(/\/+/g, '/'));
-
-  // 3. Next.js asset mapping:
-  // Browser requests /_next/static/css/...
-  // When Next.js outputs to .next, .next/static is uploaded directly to prefix/static/
-  if (clean.startsWith('_next/')) {
-    const withoutNext = clean.replace(/^_next\//, '');
-    candidates.push(`${prefix}/${withoutNext}`.replace(/\/+/g, '/'));
-    if (serveDir) {
-      candidates.push(`${prefix}/${serveDir}/${withoutNext}`.replace(/\/+/g, '/'));
+  // Generate path variations (exact path, .html page, /index.html)
+  const pathVariations: string[] = [];
+  if (clean && clean !== 'index.html') {
+    pathVariations.push(clean);
+    // If no file extension (e.g. 'learn', 'about', 'team'), add .html and /index.html
+    if (!path.extname(clean)) {
+      pathVariations.push(`${clean}.html`);
+      pathVariations.push(`${clean}/index.html`);
     }
+  } else {
+    pathVariations.push('index.html');
   }
 
-  // 4. Vite / SPA static public assets fallback
-  candidates.push(`${prefix}/public/${clean}`.replace(/\/+/g, '/'));
+  for (const p of pathVariations) {
+    // 1. If serveDir is set (e.g. server/app), check there first
+    if (serveDir) {
+      candidates.push(`${prefix}/${serveDir}/${p}`.replace(/\/+/g, '/'));
+    }
+
+    // 2. Direct path at prefix root (e.g. deployments/<id>/learn.html)
+    candidates.push(`${prefix}/${p}`.replace(/\/+/g, '/'));
+
+    // 3. Next.js server/app or server/pages directories
+    candidates.push(`${prefix}/server/app/${p}`.replace(/\/+/g, '/'));
+    candidates.push(`${prefix}/server/pages/${p}`.replace(/\/+/g, '/'));
+
+    // 4. Next.js asset mapping for _next/
+    if (p.startsWith('_next/')) {
+      const withoutNext = p.replace(/^_next\//, '');
+      candidates.push(`${prefix}/${withoutNext}`.replace(/\/+/g, '/'));
+      if (serveDir) {
+        candidates.push(`${prefix}/${serveDir}/${withoutNext}`.replace(/\/+/g, '/'));
+      }
+    }
+
+    // 5. public/ assets fallback
+    candidates.push(`${prefix}/public/${p}`.replace(/\/+/g, '/'));
+  }
 
   // Remove duplicates while preserving priority order
   return Array.from(new Set(candidates));
@@ -172,14 +190,24 @@ function getCandidateS3Keys(prefix: string, serveDir: string, filePath: string):
 
 // Handle wildcard subdomains like [slug].localhost:4002 or [slug].<ip>.nip.io:4002
 app.use((req, res, next) => {
-  const host = req.headers.host || '';
+  const host = (req.headers.host || '').split(':')[0];
   if (host.includes('.localhost') || host.includes('.nip.io')) {
     const slug = host.split('.')[0];
-    if (slug && !req.url.startsWith('/site/')) {
-      if (req.url === '/') {
-        req.url = `/site/${slug}/`;
-      } else {
-        req.url = `/site/${slug}${req.url}`;
+    if (slug) {
+      // If the user visits /site/<slug>/... on the subdomain, redirect to strip it for clean URLs
+      if (req.url.startsWith(`/site/${slug}`)) {
+        let cleanUrl = req.url.substring(`/site/${slug}`.length);
+        if (!cleanUrl.startsWith('/')) cleanUrl = '/' + cleanUrl;
+        return res.redirect(301, cleanUrl);
+      }
+
+      // Internally rewrite to /site/:slug/ so Express matches existing handlers
+      if (!req.url.startsWith('/site/')) {
+        if (req.url === '/' || req.url === '') {
+          req.url = `/site/${slug}/`;
+        } else {
+          req.url = `/site/${slug}${req.url.startsWith('/') ? req.url : '/' + req.url}`;
+        }
       }
     }
   } else if (!req.url.startsWith('/site/')) {
