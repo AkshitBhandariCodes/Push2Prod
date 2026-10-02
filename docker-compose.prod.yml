@@ -43,6 +43,7 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379
+      AUTH_TRUST_HOST: "true"
     depends_on:
       - redis
     restart: unless-stopped
