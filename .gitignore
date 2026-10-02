@@ -2,7 +2,6 @@
 node_modules/
 jspm_packages/
 web_modules/
-dev-docs/
 
 # Build outputs
 dist/
@@ -29,36 +28,33 @@ lerna-debug.log*
 .DS_Store
 Thumbs.db
 
-# Project-specific ignores
-design.md
-DESIGN-vercel.md
-design-vercel.md
-config.bat
+# Documentation & Journey Logs (Kept local for blogs)
+docs/
+Report/
+dev-docs/
+implementation_plan.md
+walkthrough.md
+system_design_aws.md
+design*.md
+DESIGN*.md
 
-# Vercel-Pro local temporary builds directory
+# Vercel-Pro / Push2Prod local temporary builds directory
 .vercel-pro-builds/
 
 # Kubernetes secrets file — do not commit
 infra/k8s/secrets.yaml
 
-# Temporary scratch directories
+# Temporary scratch directories & logs
 scratch/
 scratch_clone/
-
-# Reports and Documentation
-Report/
-implementation_plan.md
-walkthrough.md
-system_design_aws.md
-
-# Log files
+graphify-out/
+.kilo/
 *.log
 ts_error.log
 
-# Temporary test / fix scripts (root directory)
+# Scratch scripts & database dumps
+*.sql
+*.ps1.bak
+*.bak
 fix.js
 check_s3.js
-*.sql
-rename.ps1
-graphify-out/
-.kilo/
