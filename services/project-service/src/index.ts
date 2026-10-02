@@ -9,10 +9,10 @@ import { logger } from '@push2prod/logger';
 
 import express from 'express';
 import cors from 'cors';
-import { Pool } from 'pg';
+import { db } from '@push2prod/db';
 import { createClient, RedisClientType } from 'redis';
 
-// Route handlers import â€” har route file ek specific feature handle karti hai
+// Route handlers import — har route file ek specific feature handle karti hai
 import debugRouter from './routes/debug';
 import projectsRouter from './routes/projects';
 import { createDeployRouter } from './routes/deploy';
@@ -27,14 +27,6 @@ const app = express();
 app.use(express.json());
 
 // ============================================================
-// Database Connection Pool
-// pg Pool use karte hain health check ke liye â€” Prisma ORM queries ke liye @push2prod/db use hota hai
-// ============================================================
-const pgPool = new Pool({
-  connectionString: config.databaseUrl,
-});
-
-// ============================================================
 // Redis Client Setup
 // Redis ko cache aur message queue (Streams) ke liye use karte hain
 // Type assertion isliye hai taaki XADD jaisi commands ka TypeScript type sahi aaye
@@ -43,7 +35,7 @@ const redisClient = createClient({
   url: config.redisUrl,
 }) as RedisClientType;
 
-// Redis connection errors ko log karo â€” ye background mein fire hota rahega agar Redis offline hai
+// Redis connection errors ko log karo — ye background mein fire hota rahega agar Redis offline hai
 redisClient.on('error', (err) => logger.error('Redis connection error', err));
 
 // ============================================================
@@ -51,13 +43,13 @@ redisClient.on('error', (err) => logger.error('Redis connection error', err));
 // Har feature ka apna router hai jo specific URL prefix par mount hota hai
 // ============================================================
 
-// Debug routes â€” /debug/db-counts (development ke liye table counts)
+// Debug routes — /debug/db-counts (development ke liye table counts)
 app.use('/debug', debugRouter);
 
-// Project CRUD routes â€” /projects (create, list, detail)
+// Project CRUD routes — /projects (create, list, detail)
 app.use('/projects', projectsRouter);
 
-// Deploy routes â€” /projects/:id/deploy, /projects/:id/deployments
+// Deploy routes — /projects/:id/deploy, /projects/:id/deployments
 // createDeployRouter ek factory function hai jo redisClient accept karta hai
 // (taaki deploy route Redis Stream mein XADD kar sake)
 app.use('/projects', createDeployRouter(redisClient));
@@ -74,12 +66,10 @@ app.get('/health', async (req, res) => {
   let dbStatus = 'disconnected';
   let redisStatus = 'disconnected';
 
-  // PostgreSQL health check â€” simple SELECT NOW() query chalate hain
+  // PostgreSQL health check — Prisma db.$queryRaw use karte hain (with AWS RDS SSL support)
   try {
-    const dbResult = await pgPool.query('SELECT NOW()');
-    if (dbResult.rows.length > 0) {
-      dbStatus = 'connected';
-    }
+    await db.$queryRaw`SELECT 1`;
+    dbStatus = 'connected';
   } catch (error) {
     logger.error('Database health check failed:', error);
   }
