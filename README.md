@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 Push2Prod (Vercel-Pro)
+# 🚀 Push2Prod 
 
 **A Cloud-Native, Self-Hosted Frontend Deployment & Static Hosting Platform**  
 *Achieving 100% Vercel Feature Parity on AWS Free-Tier Infrastructure ($0/month)*
@@ -94,7 +94,7 @@ sequenceDiagram
 
 ---
 
-## ⚡ Vercel Parity on AWS Free Tier: How We Did It
+## ⚡ Vercel Parity on AWS Free Tier: How I Did It
 
 Running multi-framework repositories (Next.js 16, Vite, Tailwind) on an **AWS EC2 `t3.micro` (1 GB RAM, 2 vCPUs)** requires overcoming severe resource constraints:
 
