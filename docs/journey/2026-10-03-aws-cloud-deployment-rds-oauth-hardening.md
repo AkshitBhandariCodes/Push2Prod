@@ -61,11 +61,25 @@ During end-to-end cloud deployment on AWS EC2 (`push2prod-dev-server`) and AWS R
 - **Root Cause Analysis:**
   By default, `@auth/prisma-adapter` only links accounts upon initial creation. On subsequent logins, NextAuth receives a fresh OAuth token from GitHub but never persists it to the `Account` table. The database was retaining an expired or revoked access token.
 
-### Challenge 4: High EC2 Lag & Burstable CPU Throttling
+### Challenge 5: Next.js 16 Turbopack Out of Memory (OOM) on Free Tier
 - **Symptom / Error:**
-  SSH terminal and dashboard became unresponsive during and after user builds.
+  Compilation halted abruptly during static page generation:
+  ```text
+  Creating an optimized production build ...
+  [ERROR] Build was terminated by Linux Out of Memory (OOM) Killer (Exit code 137 / SIGKILL).
+  ```
 - **Root Cause Analysis:**
-  On a 1 GB RAM `t3.micro`, 6 Docker containers with uncapped V8 heaps (~1.4 GB max each) pushed over 1.6 GB of memory into swap. Linux's default `swappiness=60` caused massive EBS disk I/O thrashing, exhausting AWS CPU burst credits and dropping instance performance to baseline.
+  Next.js 16 defaults to Turbopack, a Rust-based parallel compilation engine that spawns multi-threaded worker pools across detected CPU cores, demanding 4 GB–8 GB of RAM. The runner container was clamped to `--memory 800m`, and Node's V8 engine automatically restricted its heap ceiling to 462MB based on the host's 909MB RAM.
+- **Vercel Benchmark:**
+  Vercel provisions **8 GB to 16 GB of dedicated RAM** per serverless build microVM, allowing Turbopack to compile in parallel without OOM crashes.
+
+### Challenge 6: Broken Asset Loading on Subdirectory Paths vs Vercel Subdomain Isolation
+- **Symptom / Error:**
+  Deployments accessed via `http://<ip>:4002/site/<slug>/` rendered unstyled HTML with broken images and missing fonts.
+- **Root Cause Analysis:**
+  Next.js bundles all static CSS/JS with root-relative paths (`/_next/static/css/...`). When loaded from `/site/<slug>/`, browsers requested assets directly from `http://<ip>:4002/_next/...` (without the project prefix), resulting in 404s.
+- **Vercel Benchmark:**
+  Vercel **never** serves deployments from path subdirectories; it provisions a dedicated root subdomain (`https://<project>.vercel.app/`) for every deployment, ensuring all root-relative paths resolve properly.
 
 ---
 
@@ -74,14 +88,17 @@ During end-to-end cloud deployment on AWS EC2 (`push2prod-dev-server`) and AWS R
 - **Attempted Fixes (Failed / Suboptimal):**
   1. *Restarting Docker containers:* Running `docker compose restart` did not reload `.env` variable changes (such as the updated RDS DNS name). Containers had to be recreated using `docker compose up -d`.
   2. *Re-authenticating in UI:* Logging out and logging in did not refresh the stored access token because the Prisma Adapter skips updating existing `Account` records without a custom callback.
+  3. *Unconstrained Turbopack on Free Tier:* Turbopack parallel compilation could not be stabilized inside 1 GB RAM without swapping excessively.
 - **Winning Solutions:**
   1. **Prisma SSL Query:** Switched `project-service` health check to `await db.$queryRaw'SELECT 1'`, inheriting Prisma's native SSL connection pool.
   2. **Stream Concatenation:** Updated `runner.ts` to `[buildErr.stdout, buildErr.stderr].filter(Boolean).join('\n')`, accurately exposing compiler errors to users.
   3. **Explicit Token Upsert:** Added an async `signIn` callback in `auth.ts` executing `db.account.upsert` to write fresh access tokens on every OAuth authentication.
   4. **Memory Caps & Swappiness:** Set `NODE_OPTIONS="--max-old-space-size=..."` (100–200MB) across all services, limited Redis to 64MB LRU, and configured `vm.swappiness=10`.
+  5. **Low-Memory Sequential Compilation Engine:** Enforced single-worker execution (`NEXT_CPU_COUNT=1`), switched compiler to memory-friendly Webpack (`next build --webpack`), and explicitly allowed V8 heap expansion up to 1.5GB (`NODE_OPTIONS="--max-old-space-size=1536"`).
+  6. **Subdomain Isolation (`nip.io`) + Referer Rewriting:** Implemented wildcard `nip.io` routing (`http://<slug>.<ip>.nip.io:4002/`) for 100% Vercel-like root asset isolation, backed by an Express `Referer` header rewrite for direct raw path visits.
 - **Takeaways / Key Insights:**
   > [!TIP]
-  > When building microservices on cloud Free Tier instances (like AWS `t3.micro`), explicit V8 heap limits and `vm.swappiness=10` are mandatory to prevent disk I/O thrashing from bringing down the entire node.
+  > To emulate Vercel on low-cost single-node hardware, you must decouple parallel compiler concurrency (`NEXT_CPU_COUNT=1`), expand the V8 heap into swap, and isolate projects using wildcard subdomains rather than directory paths.
 
 ---
 
@@ -89,11 +106,11 @@ During end-to-end cloud deployment on AWS EC2 (`push2prod-dev-server`) and AWS R
 
 ```mermaid
 graph TD
-    Client[Browser / User] -->|HTTP 3000| Web[apps/web Next.js]
+    Client[Browser / User] -->|Subdomain: http://slug.52.1.207.241.nip.io:4002| Routing[services/routing-service]
+    Client -->|HTTP 3000| Web[apps/web Next.js]
     Client -->|HTTP 4000| Gateway[apps/api-gateway]
-    Client -->|HTTP 4002| Routing[services/routing-service]
     
-    subgraph EC2 Host [AWS EC2 t3.micro - 1GB RAM]
+    subgraph EC2 Host [AWS EC2 t3.micro - 1GB RAM + 4GB Swap]
         Web -->|OAuth signIn Upsert| DB[(AWS RDS PostgreSQL)]
         Web -->|User-Agent Auth Call| GitHubAPI[GitHub REST API]
         Gateway -->|Prisma SSL Query| DB
@@ -102,13 +119,15 @@ graph TD
         ProjectSvc -->|XADD Events| Redis[(Redis 7 64MB LRU)]
         
         BuildCtrl[services/build-controller] -->|XREADGROUP| Redis
-        BuildCtrl -->|docker run isolated| BuildRunner[prod2push/build-runner]
-        BuildRunner -->|Combined Logs stdout+stderr| DB
+        BuildCtrl -->|docker run --memory 1800m| BuildRunner[prod2push/build-runner - Node 20 LTS]
+        BuildRunner -->|NEXT_CPU_COUNT=1 single-worker| BuildRunner
         BuildRunner -->|Deploy Artifacts| S3[(AWS S3 Bucket)]
+        Routing -->|Subdomain / Referer S3 Key Lookup| S3
     end
 ```
 
-- **Architectural Shift:** Standardized database connectivity exclusively through the shared `@push2prod/db` Prisma client, ensuring consistent SSL enforcement and connection pooling across all services.
+- **Architectural Shift:** Standardized deployment isolation on wildcard subdomains (`nip.io`) and build execution on single-worker Node 20 LTS, matching Vercel's runtime contract while operating within the AWS Free Tier.
+- **Associated ADR:** [ADR-003: Vercel Parity — Subdomain Asset Isolation, Node 20 LTS Alignment & Low-Memory Build Orchestration](../adr/003-vercel-parity-subdomain-routing-and-low-memory-compilation.md)
 
 ---
 
