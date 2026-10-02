@@ -6,16 +6,24 @@ import { ZodError } from 'zod';
 import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { config } from '@push2prod/config';
 
-// Initialize S3 Client for deleting artifacts
-const s3Client = new S3Client({
+// Initialize S3 Client for deleting artifacts (IAM Role support or static credentials)
+const s3Config: any = {
   region: config.s3.region,
-  endpoint: config.s3.endpoint,
-  credentials: {
+  forcePathStyle: config.s3.forcePathStyle, // Required for MinIO
+};
+
+if (config.s3.endpoint) {
+  s3Config.endpoint = config.s3.endpoint;
+}
+
+if (config.s3.accessKeyId && config.s3.secretAccessKey) {
+  s3Config.credentials = {
     accessKeyId: config.s3.accessKeyId,
     secretAccessKey: config.s3.secretAccessKey,
-  },
-  forcePathStyle: config.s3.forcePathStyle, // Required for MinIO
-});
+  };
+}
+
+const s3Client = new S3Client(s3Config);
 const BUCKET_NAME = config.s3.bucketName;
 
 async function emptyS3Directory(bucket: string, dir: string) {
