@@ -170,16 +170,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Enforce trailing slash on /site/:slug so relative assets resolve properly
-app.get('/site/:slug', (req, res, next) => {
-  return res.redirect(301, `/site/${req.params.slug}/`);
-});
-
-app.get(['/site/:slug/*', '/site/:slug/'], async (req, res) => {
-  const { slug } = req.params;
-  // req.params[0] captures the wildcard part after /site/:slug/
-  let filePath = (req.params as any)[0] || 'index.html';
-  if (!filePath || filePath === '/') filePath = 'index.html';
+async function handleServe(
+  req: express.Request,
+  res: express.Response,
+  slug: string,
+  filePath: string
+) {
+  if (!filePath || filePath === '/' || filePath === '') filePath = 'index.html';
+  if (filePath.startsWith('/')) filePath = filePath.substring(1);
 
   try {
     const serveRoot = await resolveSlugToServeRoot(slug);
@@ -206,12 +204,12 @@ app.get(['/site/:slug/*', '/site/:slug/'], async (req, res) => {
     } catch (s3Error: any) {
       // If file not found, implement SPA fallback
       if (s3Error.name === 'NoSuchKey' || s3Error.$metadata?.httpStatusCode === 404) {
-        // If the path has an extension (like .js, .css, .png) â†’ real missing asset â†’ 404
+        // If the path has an extension (like .js, .css, .png) -> real missing asset -> 404
         if (path.extname(filePath)) {
           return res.status(404).send('File not found.');
         }
 
-        // SPA Fallback: any non-extension path (client-side route) â†’ serve index.html
+        // SPA Fallback: any non-extension path (client-side route) -> serve index.html
         const fallbackKey = buildS3Key(prefix, serveDir, 'index.html');
         try {
           const fallbackCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fallbackKey });
@@ -229,16 +227,32 @@ app.get(['/site/:slug/*', '/site/:slug/'], async (req, res) => {
         return res.status(500).send('Internal Server Error fetching from storage.');
       }
     }
-
   } catch (error) {
     logger.error('Routing Service Error:', error);
     res.status(500).send('Internal Server Error');
   }
+}
+
+// Handle root /site/:slug (with or without trailing slash)
+app.get('/site/:slug', (req, res) => {
+  const { slug } = req.params;
+  const originalPath = req.originalUrl.split('?')[0];
+
+  // If the user directly visited /site/:slug without a trailing slash, redirect with 301
+  if (originalPath === `/site/${slug}`) {
+    const query = req.originalUrl.includes('?') ? req.originalUrl.substring(req.originalUrl.indexOf('?')) : '';
+    return res.redirect(301, `/site/${slug}/${query}`);
+  }
+
+  // Otherwise, it was accessed with a trailing slash (/site/:slug/) or rewritten from subdomain
+  return handleServe(req, res, slug, 'index.html');
 });
 
-// For pure /site/:slug (no trailing slash)
-app.get('/site/:slug', (req, res) => {
-  res.redirect(`/site/${req.params.slug}/`);
+// Handle wildcard file paths under /site/:slug/*
+app.get('/site/:slug/*', (req, res) => {
+  const { slug } = req.params;
+  const filePath = (req.params as any)[0] || 'index.html';
+  return handleServe(req, res, slug, filePath);
 });
 
 const PORT = 4002;

@@ -85,7 +85,7 @@ graph TD
 1. **Routing Service (`services/routing-service/src/index.ts`):**
    - Wildcard hostname parser: extracts `slug` from `<slug>.<ip>.nip.io:4002` and maps root requests `/` to `/site/<slug>/`.
    - Referer asset rewrite: when an un-prefixed asset (`/_next/static/css/...`) is requested on a raw IP, matches `req.headers.referer` to automatically restore the target deployment.
-   - Enforced 301 trailing slash redirect on `/site/:slug` -> `/site/:slug/` for relative HTML links.
+   - Trailing slash normalization: redirects `/site/:slug` -> `/site/:slug/` only when the trailing slash is missing in `req.originalUrl`, preventing infinite redirect loops (`ERR_TOO_MANY_REDIRECTS`) while ensuring browser relative paths resolve correctly.
 
 2. **Web Dashboard (`apps/web/src/app/projects/[id]/page.tsx`):**
    - Updated `getLiveUrl` to automatically construct wildcard `nip.io` preview links when accessed via remote public IPv4.
