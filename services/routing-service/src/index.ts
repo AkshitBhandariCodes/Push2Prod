@@ -158,11 +158,24 @@ app.use((req, res, next) => {
         req.url = `/site/${slug}${req.url}`;
       }
     }
+  } else if (!req.url.startsWith('/site/')) {
+    // Referer fallback: when assets like /_next/static/... or images are requested on raw IP without /site/:slug/ prefix
+    const referer = req.headers.referer || '';
+    const match = referer.match(/\/site\/([^/?#]+)/);
+    if (match) {
+      const slug = match[1];
+      req.url = `/site/${slug}${req.url.startsWith('/') ? req.url : '/' + req.url}`;
+    }
   }
   next();
 });
 
-app.get('/site/:slug/*', async (req, res) => {
+// Enforce trailing slash on /site/:slug so relative assets resolve properly
+app.get('/site/:slug', (req, res, next) => {
+  return res.redirect(301, `/site/${req.params.slug}/`);
+});
+
+app.get(['/site/:slug/*', '/site/:slug/'], async (req, res) => {
   const { slug } = req.params;
   // req.params[0] captures the wildcard part after /site/:slug/
   let filePath = (req.params as any)[0] || 'index.html';

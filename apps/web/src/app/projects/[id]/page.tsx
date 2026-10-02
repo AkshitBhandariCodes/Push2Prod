@@ -169,8 +169,13 @@ function getLiveUrl(slug: string): string {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return `http://${slug}.localhost:4002/`;
     }
-    // Remote cloud / EC2 public IP or domain
-    return `http://${hostname}:4002/site/${slug}/`;
+    // Remote cloud: IPv4 address check (e.g. 52.1.207.241) -> use nip.io for root subdomain isolation
+    const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+    if (isIp) {
+      return `http://${slug}.${hostname}.nip.io:4002/`;
+    }
+    // Custom domain
+    return `http://${slug}.${hostname}:4002/`;
   }
   return `http://${slug}.localhost:4002/`;
 }
