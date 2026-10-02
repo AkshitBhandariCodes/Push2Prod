@@ -133,13 +133,37 @@ async function resolveSlugToServeRoot(slug: string): Promise<{ prefix: string; s
 }
 
 /**
- * Build the full S3 key for a file request, respecting serveDir.
- * serveDir=''       â†’ deployments/<id>/index.html
- * serveDir='public' â†’ deployments/<id>/public/index.html
+ * Generates candidate S3 keys for a file request.
+ * Handles framework differences (Next.js .next/static vs /_next/static, Vite dist, SPA routes).
  */
-function buildS3Key(prefix: string, serveDir: string, filePath: string): string {
-  const servePath = serveDir ? `${prefix}/${serveDir}` : prefix;
-  return `${servePath}/${filePath}`.replace(/\/+/g, '/');
+function getCandidateS3Keys(prefix: string, serveDir: string, filePath: string): string[] {
+  const clean = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+  const candidates: string[] = [];
+
+  // 1. If serveDir is set (e.g. server/app), check there first
+  if (serveDir) {
+    candidates.push(`${prefix}/${serveDir}/${clean}`.replace(/\/+/g, '/'));
+  }
+
+  // 2. Direct path at prefix root (e.g. deployments/<id>/static/css/...)
+  candidates.push(`${prefix}/${clean}`.replace(/\/+/g, '/'));
+
+  // 3. Next.js asset mapping:
+  // Browser requests /_next/static/css/...
+  // When Next.js outputs to .next, .next/static is uploaded directly to prefix/static/
+  if (clean.startsWith('_next/')) {
+    const withoutNext = clean.replace(/^_next\//, '');
+    candidates.push(`${prefix}/${withoutNext}`.replace(/\/+/g, '/'));
+    if (serveDir) {
+      candidates.push(`${prefix}/${serveDir}/${withoutNext}`.replace(/\/+/g, '/'));
+    }
+  }
+
+  // 4. Vite / SPA static public assets fallback
+  candidates.push(`${prefix}/public/${clean}`.replace(/\/+/g, '/'));
+
+  // Remove duplicates while preserving priority order
+  return Array.from(new Set(candidates));
 }
 
 /**
@@ -186,47 +210,65 @@ async function handleServe(
     }
 
     const { prefix, serveDir } = serveRoot;
-    const s3Key = buildS3Key(prefix, serveDir, filePath);
+    const candidateKeys = getCandidateS3Keys(prefix, serveDir, filePath);
 
-    try {
-      // Try to fetch the requested file
-      const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
-      const s3Response = await s3Client.send(command);
+    let s3Response: any = null;
+    let matchedKey = '';
 
-      const contentType = mime.lookup(filePath) || 'application/octet-stream';
-      res.setHeader('Content-Type', contentType);
-
-      if (s3Response.Body) {
-        (s3Response.Body as NodeJS.ReadableStream).pipe(res);
-      } else {
-        res.status(500).send('Empty file body from S3.');
-      }
-    } catch (s3Error: any) {
-      // If file not found, implement SPA fallback
-      if (s3Error.name === 'NoSuchKey' || s3Error.$metadata?.httpStatusCode === 404) {
-        // If the path has an extension (like .js, .css, .png) -> real missing asset -> 404
-        if (path.extname(filePath)) {
-          return res.status(404).send('File not found.');
+    // Iterate through candidate keys until a match is found in S3
+    for (const key of candidateKeys) {
+      try {
+        const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
+        s3Response = await s3Client.send(command);
+        matchedKey = key;
+        break;
+      } catch (err: any) {
+        if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+          continue;
         }
-
-        // SPA Fallback: any non-extension path (client-side route) -> serve index.html
-        const fallbackKey = buildS3Key(prefix, serveDir, 'index.html');
-        try {
-          const fallbackCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fallbackKey });
-          const fallbackResponse = await s3Client.send(fallbackCommand);
-
-          res.setHeader('Content-Type', 'text/html');
-          if (fallbackResponse.Body) {
-            (fallbackResponse.Body as NodeJS.ReadableStream).pipe(res);
-          }
-        } catch (fallbackError) {
-          return res.status(404).send('Not Found: index.html missing from deployment artifacts.');
-        }
-      } else {
-        logger.error(`S3 fetch error for key ${s3Key}:`, s3Error);
+        logger.error(`S3 fetch error for key ${key}:`, err);
         return res.status(500).send('Internal Server Error fetching from storage.');
       }
     }
+
+    // If an asset was successfully matched in S3, stream it
+    if (s3Response && s3Response.Body) {
+      const contentType = mime.lookup(filePath) || mime.lookup(matchedKey) || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      return (s3Response.Body as NodeJS.ReadableStream).pipe(res);
+    }
+
+    // Asset not found directly in S3
+    // If it has a file extension (like .css, .js, .png) -> real missing asset -> return 404
+    if (path.extname(filePath)) {
+      return res.status(404).send(`File not found: ${filePath}`);
+    }
+
+    // SPA Fallback: client-side route (e.g. /about, /dashboard) -> serve index.html
+    const fallbackCandidates = Array.from(new Set([
+      serveDir ? `${prefix}/${serveDir}/index.html`.replace(/\/+/g, '/') : null,
+      `${prefix}/index.html`,
+      `${prefix}/server/app/index.html`,
+      `${prefix}/server/pages/index.html`,
+      `${prefix}/public/index.html`,
+    ].filter(Boolean) as string[]));
+
+    for (const fbKey of fallbackCandidates) {
+      try {
+        const fbCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: fbKey });
+        const fbResponse = await s3Client.send(fbCommand);
+        if (fbResponse.Body) {
+          res.setHeader('Content-Type', 'text/html');
+          return (fbResponse.Body as NodeJS.ReadableStream).pipe(res);
+        }
+      } catch (fbErr: any) {
+        if (fbErr.name === 'NoSuchKey' || fbErr.$metadata?.httpStatusCode === 404) {
+          continue;
+        }
+      }
+    }
+
+    return res.status(404).send('Not Found: index.html missing from deployment artifacts.');
   } catch (error) {
     logger.error('Routing Service Error:', error);
     res.status(500).send('Internal Server Error');
