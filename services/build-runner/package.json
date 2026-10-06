@@ -1,12 +1,12 @@
 {
   "name": "@push2prod/build-runner",
   "version": "1.0.0",
-  "description": "Isolated build runner â€” untrusted code is executed inside this service only",
+  "description": "Isolated build runner \u00e2\u20ac\u201d untrusted code is executed inside this service only",
   "main": "dist/runner.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/runner.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/runner.ts"
+    "build": "node init && tsc",
+    "start": "node init && node dist/runner.js",
+    "dev": "node init && ts-node-dev --respawn --transpile-only src/runner.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",

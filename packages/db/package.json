@@ -4,8 +4,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "dotenv -e ../../.env -- prisma generate && tsc",
-    "dev": "tsc --watch",
+    "build": "node init && dotenv -e ../../.env -- prisma generate && tsc",
+    "dev": "node init && tsc --watch",
     "prisma:generate": "dotenv -e ../../.env -- prisma generate",
     "prisma:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "prisma:studio": "dotenv -e ../../.env -- prisma studio",

@@ -94,7 +94,7 @@ sequenceDiagram
 
 ---
 
-## ⚡ Vercel Parity on AWS Free Tier: How We Did It
+## ⚡ Vercel Parity on AWS Free Tier: How I Did It
 
 Running multi-framework repositories (Next.js 16, Vite, Tailwind) on an **AWS EC2 `t3.micro` (1 GB RAM, 2 vCPUs)** requires overcoming severe resource constraints:
 
