@@ -1,4 +1,4 @@
-# Claude Code Guidelines: Vercel-Pro
+﻿# Claude Code Guidelines: Push2Prod
 
 ## Journey & Architectural Logging
 When the user invokes `/journey`, `/devlog`, or asks to record development progress:

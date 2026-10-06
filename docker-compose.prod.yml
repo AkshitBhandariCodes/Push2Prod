@@ -1,4 +1,4 @@
-name: prod2push-prod
+﻿name: PUSH2PROD-prod
 
 services:
   # ============================================================================
@@ -6,7 +6,7 @@ services:
   # ============================================================================
   redis:
     image: redis:7-alpine
-    container_name: prod2push_redis
+    container_name: PUSH2PROD_redis
     ports:
       - "6379:6379"
     volumes:
@@ -14,18 +14,18 @@ services:
     command: redis-server --appendonly yes --maxmemory 64mb --maxmemory-policy allkeys-lru
     restart: unless-stopped
     networks:
-      - prod2push-internal
+      - PUSH2PROD-internal
 
   # ============================================================================
-  # RUNNER IMAGE TARGET (Pre-builds prod2push/build-runner:latest on host daemon)
+  # RUNNER IMAGE TARGET (Pre-builds PUSH2PROD/build-runner:latest on host daemon)
   # ============================================================================
   build-runner:
     build:
       context: .
       dockerfile: services/build-runner/Dockerfile
-    container_name: prod2push_build_runner_prebuild
-    image: prod2push/build-runner:latest
-    entrypoint: ["echo", "prod2push/build-runner:latest image ready"]
+    container_name: PUSH2PROD_build_runner_prebuild
+    image: PUSH2PROD/build-runner:latest
+    entrypoint: ["echo", "PUSH2PROD/build-runner:latest image ready"]
     restart: "no"
 
   # ============================================================================
@@ -35,8 +35,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    container_name: prod2push_web
-    image: prod2push/web
+    container_name: PUSH2PROD_web
+    image: PUSH2PROD/web
     ports:
       - "3000:3000"
     env_file:
@@ -49,7 +49,7 @@ services:
       - redis
     restart: unless-stopped
     networks:
-      - prod2push-internal
+      - PUSH2PROD-internal
 
   # ============================================================================
   # APPLICATION: API Gateway (BFF Proxy)
@@ -58,8 +58,8 @@ services:
     build:
       context: .
       dockerfile: apps/api-gateway/Dockerfile
-    container_name: prod2push_api_gateway
-    image: prod2push/api-gateway
+    container_name: PUSH2PROD_api_gateway
+    image: PUSH2PROD/api-gateway
     ports:
       - "4000:4000"
     env_file:
@@ -72,7 +72,7 @@ services:
       - redis
     restart: unless-stopped
     networks:
-      - prod2push-internal
+      - PUSH2PROD-internal
 
   # ============================================================================
   # APPLICATION: Project Service
@@ -81,8 +81,8 @@ services:
     build:
       context: .
       dockerfile: services/project-service/Dockerfile
-    container_name: prod2push_project_service
-    image: prod2push/project-service
+    container_name: PUSH2PROD_project_service
+    image: PUSH2PROD/project-service
     ports:
       - "3002:3002"
     env_file:
@@ -95,7 +95,7 @@ services:
       - redis
     restart: unless-stopped
     networks:
-      - prod2push-internal
+      - PUSH2PROD-internal
 
   # ============================================================================
   # APPLICATION: Routing Service (Subdomain / Path Proxy for S3)
@@ -104,8 +104,8 @@ services:
     build:
       context: .
       dockerfile: services/routing-service/Dockerfile
-    container_name: prod2push_routing_service
-    image: prod2push/routing-service
+    container_name: PUSH2PROD_routing_service
+    image: PUSH2PROD/routing-service
     ports:
       - "4002:4002"
     env_file:
@@ -117,7 +117,7 @@ services:
       - redis
     restart: unless-stopped
     networks:
-      - prod2push-internal
+      - PUSH2PROD-internal
 
   # ============================================================================
   # WORKER: Build Controller (Spawns Docker-in-Docker build-runner)
@@ -126,12 +126,12 @@ services:
     build:
       context: .
       dockerfile: services/build-controller/Dockerfile
-    container_name: prod2push_build_controller
-    image: prod2push/build-controller
+    container_name: PUSH2PROD_build_controller
+    image: PUSH2PROD/build-controller
     env_file:
       - .env
     environment:
-      BUILD_RUNNER_IMAGE: prod2push/build-runner:latest
+      BUILD_RUNNER_IMAGE: PUSH2PROD/build-runner:latest
       BUILD_MODE: docker
       REDIS_URL: redis://redis:6379
       BUILD_RUNNER_DB_URL: ${DATABASE_URL}
@@ -149,13 +149,13 @@ services:
       - build-runner
     restart: unless-stopped
     networks:
-      - prod2push-internal
+      - PUSH2PROD-internal
 
 networks:
-  prod2push-internal:
+  PUSH2PROD-internal:
     driver: bridge
-    name: prod2push-internal
+    name: PUSH2PROD-internal
 
 volumes:
   redis_data:
-    name: prod2push_redis_data
+    name: PUSH2PROD_redis_data

@@ -11,12 +11,12 @@
 #   3. --cap-drop=ALL via compose/K8s — all Linux capabilities stripped
 #
 # BUILD COMMAND (project root se chalao):
-#   docker build -t vercel-pro/build-runner -f services/build-runner/Dockerfile .
+#   docker build -t push2prod/build-runner -f services/build-runner/Dockerfile .
 ################################################################################
 
 # ==============================================================================
 # BASE STAGE: Shared setup to avoid redundant npm installs
-# Node 20 LTS — matches Vercel production build environment
+# Node 20 LTS — matches Push2Prodduction build environment
 # ==============================================================================
 FROM node:20-alpine AS base
 WORKDIR /app

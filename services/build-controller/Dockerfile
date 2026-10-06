@@ -1,4 +1,4 @@
-################################################################################
+﻿################################################################################
 # Build Controller — Dockerfile
 #
 # YE SERVICE KYA KARTA HAI:
@@ -6,11 +6,11 @@
 #   Docker socket ya K8s API use karke build-runner containers spawn karta hai
 #
 # IMPORTANT: Docker-in-Docker ke liye host ka docker.sock mount karna padega
-#   docker run -v /var/run/docker.sock:/var/run/docker.sock vercel-pro/build-controller
+#   docker run -v /var/run/docker.sock:/var/run/docker.sock Push2Prod/build-controller
 #   Ya compose mein volumes section mein likha hai
 #
 # BUILD COMMAND (project root se):
-#   docker build -t vercel-pro/build-controller -f services/build-controller/Dockerfile .
+#   docker build -t Push2Prod/build-controller -f services/build-controller/Dockerfile .
 ################################################################################
 
 # ==============================================================================

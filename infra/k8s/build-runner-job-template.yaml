@@ -19,8 +19,8 @@
 #   kubectl apply -f infra/k8s/build-runner-job-template.yaml
 #
 # VERIFY:
-#   kubectl get jobs -n deployit
-#   kubectl describe job build-runner-<deployment-id> -n deployit
+#   kubectl get jobs -n push2prod
+#   kubectl describe job build-runner-<deployment-id> -n push2prod
 #   kubectl get jobs -n push2prod
 #   kubectl describe job build-runner-<deployment-id> -n push2prod
 #   kubectl logs job/build-runner-<deployment-id> -n push2prod
@@ -35,9 +35,9 @@ metadata:
   labels:
     app: build-runner
     app.kubernetes.io/component: build-runner
-    app.kubernetes.io/part-of: vercel-pro
+    app.kubernetes.io/part-of: push2prod
     # Deployment tracking ke liye label (kubectl get jobs -l deployment-id=xxx se filter ho sakta)
-    vercel-pro/deployment-id: DEPLOYMENT_ID_PLACEHOLDER
+    push2prod/deployment-id: DEPLOYMENT_ID_PLACEHOLDER
 spec:
   # ============================================================================
   # JOB SETTINGS
@@ -58,7 +58,7 @@ spec:
     metadata:
       labels:
         app: build-runner
-        vercel-pro/deployment-id: DEPLOYMENT_ID_PLACEHOLDER
+        push2prod/deployment-id: DEPLOYMENT_ID_PLACEHOLDER
     spec:
       # ========================================================================
       # SERVICE ACCOUNT: build-runner-sa (zero K8s API access)
@@ -82,9 +82,9 @@ spec:
 
       containers:
         - name: build-runner
-          image: vercel-pro/build-runner:latest
+          image: push2prod/build-runner:latest
           # imagePullPolicy: Never  → Minikube pe locally loaded image use karo
-          # 'minikube image load vercel-pro/build-runner' se image load hoti hai
+          # 'minikube image load push2prod/build-runner' se image load hoti hai
           # Production mein 'IfNotPresent' ya 'Always' use karo
           imagePullPolicy: Never
           
@@ -138,27 +138,27 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: vercel-pro-secrets
+                  name: push2prod-secrets
                   key: DATABASE_URL
             - name: S3_ENDPOINT
               valueFrom:
                 secretKeyRef:
-                  name: vercel-pro-secrets
+                  name: push2prod-secrets
                   key: S3_ENDPOINT
             - name: S3_BUCKET_NAME
               valueFrom:
                 secretKeyRef:
-                  name: vercel-pro-secrets
+                  name: push2prod-secrets
                   key: S3_BUCKET_NAME
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: vercel-pro-secrets
+                  name: push2prod-secrets
                   key: S3_ACCESS_KEY_ID
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: vercel-pro-secrets
+                  name: push2prod-secrets
                   key: S3_SECRET_ACCESS_KEY
           
           # ====================================================================

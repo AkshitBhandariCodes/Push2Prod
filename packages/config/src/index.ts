@@ -8,7 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 // Yahan par hum saare environment variables ko ek jagah export kar rahe hain.
 // Isse process.env har jagah likhna nahi padega, aur types ka fayda milega.
 export const config = {
-  databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/prod2push',
+  databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/push2prod',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   projectServicePort: parseInt(process.env.PROJECT_SERVICE_PORT || '4001', 10),
   apiGatewayPort: parseInt(process.env.API_GATEWAY_PORT || '4000', 10),

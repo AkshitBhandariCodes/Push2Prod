@@ -175,7 +175,7 @@ export const performCloneAndBuild = async (options: BuildOptions): Promise<boole
     const dbUrl =
       process.env.BUILD_RUNNER_DB_URL ||
       process.env.DATABASE_URL ||
-      'postgresql://postgres:postgres@postgres:5432/prod2push';
+      'postgresql://postgres:postgres@postgres:5432/push2prod';
 
     const s3Endpoint =
       process.env.BUILD_RUNNER_S3_ENDPOINT ||
@@ -209,7 +209,7 @@ export const performCloneAndBuild = async (options: BuildOptions): Promise<boole
       '--memory', process.env.BUILD_MEMORY_LIMIT || '1800m',
       '--memory-swap', process.env.BUILD_SWAP_LIMIT || '3500m',
       '--cpus', process.env.BUILD_CPU_LIMIT || '2',
-      '--network', 'prod2push-internal',              // Internal network access
+      '--network', 'push2prod-internal',              // Internal network access
       '--cap-drop', 'ALL',                             // Sabhi Linux capabilities drop karo
       '--security-opt', 'no-new-privileges:true',      // Privilege escalation block karo
       '-e', `DEPLOYMENT_ID=${deploymentId}`,

@@ -1,9 +1,9 @@
 <div align="center">
 
-# 🚀 Push2Prod (Vercel-Pro)
+# 🚀 Push2Prod
 
 **A Cloud-Native, Self-Hosted Frontend Deployment & Static Hosting Platform**  
-*Achieving 100% Vercel Feature Parity on AWS Free-Tier Infrastructure ($0/month)*
+*Achieving 100% Feature Parity on AWS Free-Tier Infrastructure ($0/month)*
 
 [![Node.js](https://img.shields.io/badge/Node.js-20_LTS-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)

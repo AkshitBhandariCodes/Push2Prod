@@ -1,12 +1,12 @@
-# ==============================================================================
-# PROD2PUSH - DOCKER-IN-DOCKER MODE SETUP SCRIPT
+﻿# ==============================================================================
+# PUSH2PROD - DOCKER-IN-DOCKER MODE SETUP SCRIPT
 # Run this to start the platform using Docker Compose
 # ==============================================================================
 
 $ErrorActionPreference = "Continue"
 
 Write-Host "============================================================" -ForegroundColor Green
-Write-Host "    STARTING PROD2PUSH IN DOCKER-IN-DOCKER MODE" -ForegroundColor Green
+Write-Host "    STARTING PUSH2PROD IN DOCKER-IN-DOCKER MODE" -ForegroundColor Green
 Write-Host "============================================================`n" -ForegroundColor Green
 
 # 1. Clean up previous instances
@@ -16,7 +16,7 @@ docker ps -aq | ForEach-Object { docker rm -f $_ } 2>$null | Out-Null
 
 # 2. Build the build-runner image locally (crucial for DinD)
 Write-Host "[2/6] Building the 'build-runner' image locally..." -ForegroundColor Yellow
-docker build -t prod2push/build-runner:latest -f services/build-runner/Dockerfile .
+docker build -t PUSH2PROD/build-runner:latest -f services/build-runner/Dockerfile .
 
 # 3. Start Infrastructure
 Write-Host "[3/6] Starting Infrastructure (Postgres, Redis, MinIO)..." -ForegroundColor Yellow
@@ -28,7 +28,7 @@ Start-Sleep -Seconds 10
 # 4. Database Migrations
 Write-Host "[4/6] Running Prisma Database Schema Push..." -ForegroundColor Yellow
 # Using a temporary node container on the same network to run prisma migrations
-docker run --rm --network prod2push-internal -v "${PWD}/packages/db/prisma:/prisma" node:22 sh -c "npm install -g prisma@5.22.0 --quiet && DATABASE_URL='postgresql://postgres:postgres@postgres:5432/prod2push' prisma db push --schema=/prisma/schema.prisma --accept-data-loss --skip-generate"
+docker run --rm --network PUSH2PROD-internal -v "${PWD}/packages/db/prisma:/prisma" node:22 sh -c "npm install -g prisma@5.22.0 --quiet && DATABASE_URL='postgresql://postgres:postgres@postgres:5432/PUSH2PROD' prisma db push --schema=/prisma/schema.prisma --accept-data-loss --skip-generate"
 
 # 5. Start the rest of the application
 Write-Host "[5/6] Building and Starting Applications..." -ForegroundColor Yellow

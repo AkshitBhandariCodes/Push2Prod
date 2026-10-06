@@ -33,7 +33,7 @@ import { db } from '@push2prod/db';
 // ============================================================================
 
 // Ye namespace wahi hai jo infra/k8s/namespace.yaml mein define kiya tha
-const K8S_NAMESPACE = process.env.K8S_NAMESPACE || 'deployit';
+const K8S_NAMESPACE = process.env.K8S_NAMESPACE || 'push2prod';
 
 // Build runner image — Minikube pe 'minikube image load' se loaded hoga
 const BUILD_RUNNER_IMAGE = process.env.BUILD_RUNNER_IMAGE || 'push2prod/build-runner:latest';

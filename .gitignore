@@ -1,4 +1,4 @@
-# Dependency directories
+﻿# Dependency directories
 node_modules/
 jspm_packages/
 web_modules/
@@ -38,8 +38,8 @@ system_design_aws.md
 design*.md
 DESIGN*.md
 
-# Vercel-Pro / Push2Prod local temporary builds directory
-.vercel-pro-builds/
+# Push2Prod / Push2Prod local temporary builds directory
+.Push2Prod-builds/
 
 # Kubernetes secrets file — do not commit
 infra/k8s/secrets.yaml
