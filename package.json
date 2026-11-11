@@ -4,8 +4,8 @@
   "private": true,
   "packageManager": "pnpm@10.10.0",
   "scripts": {
-    "dev": "node init && turbo run dev",
-    "build": "node init && turbo run build",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
     "lint": "turbo run lint"
   },
   "devDependencies": {
